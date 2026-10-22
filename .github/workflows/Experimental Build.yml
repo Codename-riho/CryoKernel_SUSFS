@@ -47,6 +47,12 @@ on:
         options:
           - "Enabled"
           - "Disabled"
+      susfs_commit:
+        description: "Commit hash SUSFS4KSU (kosongkan untuk mengambil versi terbaru)"
+        required: false
+        type: string
+        default: ""
+        
         
 jobs:
   build-kernels:
@@ -565,11 +571,24 @@ jobs:
       - name: "🚀 Inject SUSFS Integration"
         if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          # Mengambil data dari input pengguna
+          SUSFS_COMMIT: ${{ inputs.susfs_commit }}
         run: |
-          # Clone SUSFS4KSU for kernel patches only (not KSU integration)
-          echo "📦 Cloning SUSFS4KSU for kernel patches..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 && break
-
+          echo "📦 Menyiapkan repositori SUSFS4KSU untuk kernel patches..."
+          
+          # Mengecek apakah variabel SUSFS_COMMIT memiliki isi
+          if [ -n "$SUSFS_COMMIT" ]; then
+            echo "Menerapkan SUSFS4KSU pada commit spesifik: $SUSFS_COMMIT"
+            # Clone tanpa --depth=1 agar riwayat commit tersedia, lalu checkout ke target commit
+            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 && \
+            git -C susfs4ksu checkout "$SUSFS_COMMIT" && break
+          else
+            echo "Input commit kosong. Mengunduh SUSFS4KSU versi terbaru (latest)..."
+            # Clone dengan --depth=1 untuk menghemat waktu komputasi
+            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 && break
+          fi
+          
           echo "☣️ Applying namespace.c Fake Patch (if applicable)"
           if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
             sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
