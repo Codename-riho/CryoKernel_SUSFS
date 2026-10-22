@@ -27,7 +27,7 @@ on:
       ksu_ref:
         description: "Opsional: branch/tag manager (kosong = bawaan tiap manager)"
         required: false
-        default:  
+        default:  ""
       toolchain_type:
         description: "Pilih jenis Toolchain"
         type: choice
