@@ -331,7 +331,6 @@ jobs:
           # Use scripts/config for safe config manipulation
           scripts/config --file "$CONFIG_FILE" \
             -e CONFIG_KALLSYMS \
-            -e CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE \
             -e CONFIG_TCP_CONG_ADVANCED \
             -d CONFIG_TCP_CONG_BIC \
             -d CONFIG_TCP_CONG_HTCP \
@@ -355,10 +354,13 @@ jobs:
             -e CONFIG_CRYPTO_LZ4 \
             -e CONFIG_KERNEL_LZ4 \
             -e ZRAM_DEF_COMP_LZ4 \
+            --set-str CONFIG_ZRAM_DEF_COMP "lz4" \
             -d CONFIG_KERNEL_GZIP \
             -d CONFIG_KERNEL_LZO \
             -d CONFIG_KERNEL_XZ \
-            -d CONFIG_UAPI_HEADER_TEST \
+            -d CONFIG_KERNEL_ZSTD \
+            -d CONFIG_KERNEL_BZIP2 \
+            -d CONFIG_KERNEL_UNCOMPRESSED \
             -d CONFIG_KPROFILES
           
           # Remove duplicate lines safely
