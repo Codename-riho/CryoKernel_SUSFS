@@ -23,7 +23,7 @@ on:
           - KernelSU-Next 
           - KernelSU-Official
           - Rissu-KSU 
-        default: BakaSU
+        default: "BakaSU-susfs"
       ksu_ref:
         description: "Opsional: branch/tag manager (kosong = bawaan tiap manager)"
         required: false
@@ -49,9 +49,9 @@ on:
           - "Disabled"
       susfs_commit:
         description: "Commit hash SUSFS4KSU (kosongkan untuk mengambil versi terbaru)"
-        required: false
+        required: true
         type: string
-        default: ""
+        default: "2ad297356931ba06b4edc0860f42fdd143b02ffd"
         
         
 jobs:
