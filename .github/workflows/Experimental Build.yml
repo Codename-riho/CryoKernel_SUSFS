@@ -367,7 +367,6 @@ jobs:
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
       - name: "🚄 Apply BBRv3 + PLB"
-        if: matrix.kernel.enable_ksu == true
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           BBR3_SHA: 7bc9793d909f52f4a6cd45dd1381b2f200c18a7c
@@ -752,7 +751,7 @@ jobs:
              die "Fatal Error: File Defconfig tidak ditemukan di $CONFIG_PATH."
           fi
 
-          echo "⚙️ Mengubah CPU Governor default menjadi 'schedutil' (Balanced)..."
+          echo "⚙️ Mengubah CPU Governor default menjadi 'walt' (Balanced)..."
 
           # 1. Pastikan governor schedutil ikut di-build ke dalam kernel
           scripts/config --file "$CONFIG_PATH" -e CONFIG_CPU_FREQ_GOV_SCHEDUTIL
@@ -906,14 +905,15 @@ jobs:
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
           ║     Features:                                       ║
-          ║     • Full LTO + -O2 Optimization                   ║
+          ║     • Full LTO                                      ║
           ║     • Extra TCP Congestion                          ║
-          ║     • Cirrus clang 24.0.0                           ║
+          ║     • Cirrus clang 24.0.0/Clang r547379             ║
           ║     • Droidspaces Support                           ║
           ║     • Baseband-guard v1 Support                     ║
           ║     • Vanilla & BakaSU (Multi Manager Support).     ║
           ║     • Integrated with SUSFS (GKI A13-5.15)          ║
           ║     • Metamodule Nomount built-in Support           ║
+          ║     • Homemade Like stock !!!!                      ║
           ║                                                     ║
           ║     Please ensure:                                  ║
           ║     • Your device is compatible                     ║
@@ -976,16 +976,16 @@ jobs:
            ✅ <b>Kernel Build Successful</b>
 
            <b>📦 Build Information:</b>
-           • 🐧 Kernel: <code>Linux ${KERNEL_VERSION}</code>
+           • Kernel: <code>Linux ${KERNEL_VERSION}</code>
            • Android: <code>13-16</code>
            • Branch: <code>android13-5.15-lts</code> (GKI), <code>kernel.lnx.5.15.r1-rel</code> (CLO)
            • Device: <code>${DEVICE_NAME}</code>
 
-           <b>⚙️ Configuration:</b>
+           <b>👾 Configuration:</b>
            • LTO: <code>full</code>
            • Optimization: <code>-O2</code>
            • Images: <code>${IMAGES}</code>
-           • ⚔️ KSU Manager: <code>${MANAGER}</code>
+           • KSU Manager: <code>${MANAGER}</code>
            • SUSFS: <code>Enabled (GKI A13-5.15)</code>
            • Local Version: <code>Cryo-GKI-${DATE}</code>, <code>Cryo-CLO-${DATE}</code>
            • Build Tools: <code>${BUILD_TOOLS}</code>
