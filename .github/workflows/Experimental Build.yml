@@ -400,10 +400,84 @@ jobs:
           rm -f .scmversion localversion*
           echo "Localversion: $VER"
                     
-      - name: "🚀 Add Droidspaces Support (fix KABI sysvipc)"
+      - name: "🚀 Add Droidspaces Support (kABI patch + GKI defconfig)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          DS_REF: main                  # branch/tag/commit Droidspaces-OSS
+          DS_OPTIONAL_FEATURES: "true"  # IPv6 NAT, macvlan, UFW, Fail2ban, tmpfs xattr/ACL
         run: |
-          curl -sL "https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch" | git apply -v --ignore-whitespace || { echo "::error::Droidspaces patch failed"; exit 1; }
+          set -euo pipefail
+          die() { echo "::error::$*"; exit 1; }
+
+          DS_RAW="${DS_RAW:-https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/${DS_REF}/Documentation/resources/kernel-patches/GKI}"
+
+          # --- 1. Pilih patch kABI sesuai versi kernel ---------------------------
+          KVER=$(sed -n 's/^VERSION = //p' Makefile | head -n 1)
+          KPL=$(sed -n 's/^PATCHLEVEL = //p' Makefile | head -n 1)
+          [ -n "$KVER" ] && [ -n "$KPL" ] || die "Gagal membaca versi kernel dari Makefile"
+          KNUM=$((KVER * 100 + KPL))
+          echo "Kernel $KVER.$KPL"
+
+          [ "$KNUM" -ge 504 ] || die "Droidspaces GKI membutuhkan kernel 5.4+ (terdeteksi $KVER.$KPL)"
+          [ "$KNUM" -lt 612 ] || die "Kernel $KVER.$KPL memakai patch folder kernel-6.12 (belum didukung step ini)"
+
+          PATCHES="below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch"
+          if [ "$KNUM" -le 510 ]; then
+            # 5.10 ke bawah: POSIX mqueue juga perlu padding ABI Android
+            PATCHES="$PATCHES below-kernel-6.12/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch"
+          fi
+
+          for p in $PATCHES; do
+            f="/tmp/ds_$(basename "$p")"
+            echo "📥 Mengunduh $p"
+            curl -fsSL --retry 3 --retry-delay 5 -o "$f" "$DS_RAW/$p" \
+              || die "Gagal mengunduh patch Droidspaces: $p"
+
+            if git apply --check -R --ignore-whitespace "$f" >/dev/null 2>&1; then
+              echo "✅ Sudah terpasang, dilewati: $p"
+            else
+              git apply -v --ignore-whitespace "$f" \
+                || die "Droidspaces patch gagal diterapkan: $p"
+              echo "✅ Berhasil dipasang: $p"
+            fi
+            rm -f "$f"
+          done
+
+          # --- 2. Edit gki_defconfig langsung (bukan fragment) -------------------
+          CFG="arch/arm64/configs/${DEFCONFIG_NAME}"
+          [ -f "$CFG" ] || die "Defconfig tidak ditemukan: $CFG"
+
+          # Wajib: IPC, namespace, devtmpfs, NAT
+          REQUIRED="SYSVIPC POSIX_MQUEUE IPC_NS PID_NS DEVTMPFS NETFILTER_XT_MATCH_ADDRTYPE"
+          # Opsional tapi disarankan (aman untuk kABI bersama patch di atas)
+          OPTIONAL="USER_NS IP6_NF_NAT IP6_NF_TARGET_MASQUERADE MACVLAN
+                    NETFILTER_XT_TARGET_REJECT NETFILTER_XT_TARGET_LOG NETFILTER_XT_MATCH_RECENT
+                    IP_SET IP_SET_HASH_IP IP_SET_HASH_NET NETFILTER_XT_SET
+                    TMPFS_POSIX_ACL TMPFS_XATTR"
+          [ "${DS_OPTIONAL_FEATURES:-true}" = "true" ] || OPTIONAL=""
+
+          for o in $REQUIRED $OPTIONAL; do
+            scripts/config --file "$CFG" -e "CONFIG_$o"
+          done
+
+          # --- 3. Verifikasi hasil ----------------------------------------------
+          for o in $REQUIRED; do
+            grep -q "^CONFIG_${o}=y" "$CFG" || die "CONFIG_${o} gagal diaktifkan di $CFG"
+          done
+          for o in $OPTIONAL; do
+            grep -q "^CONFIG_${o}=y" "$CFG" || echo "::warning::CONFIG_${o} tidak aktif di $CFG"
+          done
+
+          # --- 4. Pengaman kABI: dua opsi ini JANGAN aktif di GKI ----------------
+          # CFS_BANDWIDTH (--cpus) & CGROUP_PIDS (--pids-limit) mengubah CRC ribuan
+          # simbol ekspor -> modul vendor ditolak -> bootloop. Tidak disentuh di sini.
+          for o in CFS_BANDWIDTH CGROUP_PIDS; do
+            if grep -q "^CONFIG_${o}=y" "$CFG"; then
+              echo "::warning::CONFIG_${o}=y terdeteksi di $CFG - berisiko merusak kABI (bootloop)"
+            fi
+          done
+
+          echo "✅ Droidspaces: patch kABI + defconfig siap (kernel $KVER.$KPL)"background: background:
           
       - name: "😋 Add BBG Support"
         if: matrix.kernel.enable_ksu == true
