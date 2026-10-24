@@ -504,127 +504,6 @@ jobs:
           done
 
           echo "✅ Droidspaces: patch kABI + defconfig siap (kernel $KVER.$KPL)"background: background:
-          
-      - name: "😋 Add BBG Support"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
-          scripts/config --file arch/arm64/configs/${{ env.DEFCONFIG_NAME }} -e CONFIG_BBG
-          sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
-          
-      - name: "🔧 Add NoMount Support"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
-          
-      - name: "⚔️ Setup root manager (${{ inputs.ksu_manager }})"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          # Kita petakan input dari GitHub Actions ke Environment Variable Bash dengan aman di sini
-          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
-          KSU_REF: ${{ inputs.ksu_ref }}
-          # Tambahkan input untuk mengontrol SUSFS (bisa dari inputs GitHub Actions, default 'Enabled')
-          ENABLE_SUSFS: ${{ inputs.susfsSupport || 'Enabled' }}
-        run: |
-          set -euo pipefail
-          die() { echo "::error::$*"; exit 1; }
-
-          MULTI_MANAGER_PATCH="https://raw.githubusercontent.com/RapliVx/kernel_builder/refs/heads/main/patch/ksun-add-more-managers-support.patch"
-          EXTRA_PATCH_URL=""
-
-          # Konfigurasi per manager
-          case "$KSU_MANAGER" in
-            BakaSU)                 REPO="Baka-SU/BakaSU";              SETUP_BRANCH=main;      DEFAULT_REF=main;      NEED_SUSFS_PATCH=0 ;;
-            BakaSU-susfs)           REPO="Baka-SU/BakaSU";              SETUP_BRANCH=sync-susfs;DEFAULT_REF=sync-susfs;NEED_SUSFS_PATCH=0 ;;
-            SukiSU-Ultra)           REPO="SukiSU-Ultra/SukiSU-Ultra";   SETUP_BRANCH=main;      DEFAULT_REF=builtin;   NEED_SUSFS_PATCH=0 ;;
-            KernelSU-Next)          REPO="KernelSU-Next/KernelSU-Next"; SETUP_BRANCH=dev;       DEFAULT_REF="";        NEED_SUSFS_PATCH=1 ;;
-            KernelSU-Next-pershoot) REPO="pershoot/KernelSU-Next";      SETUP_BRANCH=dev-susfs; DEFAULT_REF=dev-susfs; NEED_SUSFS_PATCH=0; EXTRA_PATCH_URL="$MULTI_MANAGER_PATCH" ;;
-            KernelSU-Official)      REPO="tiann/KernelSU";              SETUP_BRANCH=main;      DEFAULT_REF="";        NEED_SUSFS_PATCH=1; EXTRA_PATCH_URL="$MULTI_MANAGER_PATCH" ;;
-            Rissu-KSU)              REPO="rsuntk/KernelSU";             SETUP_BRANCH=main;      DEFAULT_REF="";        NEED_SUSFS_PATCH=1 ;;
-            *) die "Fatal Error: Varian manager tidak dikenal: $KSU_MANAGER" ;;
-          esac
-
-          # Logika untuk menonaktifkan SUSFS jika diminta pengguna
-            if [ "$ENABLE_SUSFS" = "Disabled" ]; then
-               echo "ℹ️ Opsi SUSFS dinonaktifkan dari input. Mengabaikan kebutuhan patch SUSFS."
-               NEED_SUSFS_PATCH=0
-            fi
-
-          REF="${KSU_REF:-$DEFAULT_REF}"
-          SETUP_URL="https://raw.githubusercontent.com/${REPO}/${SETUP_BRANCH}/kernel/setup.sh"
-          echo "Manager: $KSU_MANAGER | ref: ${REF:-latest release tag}"
-          echo "Setup script: $SETUP_URL"
-
-          # Hapus instalasi sebelumnya jika ada, lalu jalankan skrip setup
-          rm -rf ./KernelSU ./KernelSU-Next ./drivers/kernelsu
-          curl -fsSL -o /tmp/ksu_setup.sh "$SETUP_URL" \
-            || die "Fatal Error: Gagal mengunduh skrip setup dari $SETUP_URL"
-            
-          bash -x /tmp/ksu_setup.sh ${REF:+"$REF"} \
-            || die "Fatal Error: Eksekusi setup.sh untuk $KSU_MANAGER gagal (ref: ${REF:-latest tag})"
-
-          # Cek ketersediaan symlink drivers/kernelsu
-          if [ ! -e drivers/kernelsu ]; then
-            die "Fatal Error: Symlink drivers/kernelsu tidak ditemukan atau rusak setelah setup."
-          fi
-          
-          # Ambil direktori asli dari root manager
-          KSU_DIR=$(readlink -f drivers/kernelsu)
-          echo "Install dir: $KSU_DIR"
-
-          # Teruskan hasil ke langkah berikutnya
-          {
-            echo "KSU_DIR=$KSU_DIR"
-            echo "NEED_SUSFS_PATCH=$NEED_SUSFS_PATCH"
-            echo "EXTRA_PATCH_URL=$EXTRA_PATCH_URL"
-            echo "KSU_REF_USED=${REF:-latest tag}"
-          } >> "$GITHUB_ENV"
-
-      - name: "🩹 Patch manager with SUSFS"
-        if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
-          SUSFS_BRANCH: gki-android13-5.15
-        run: |
-          set -euo pipefail
-          die() { echo "::error::$*"; exit 1; }
-
-          # Meskipun input Enabled, kita cek apakah varian Root Manager butuh patch eksternal
-          if [ "$NEED_SUSFS_PATCH" != 1 ]; then
-            echo "✅ Varian $KSU_MANAGER sudah menggunakan SUSFS bawaan (built-in). Melewati proses patch manual."
-            exit 0
-          fi
-
-          echo "Menerapkan patch SUSFS (branch: $SUSFS_BRANCH) ke $KSU_DIR"
-          rm -rf /tmp/susfs4ksu
-          ok=0
-          for i in 1 2 3; do
-            if git clone --depth=1 -b "$SUSFS_BRANCH" https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs4ksu; then
-              ok=1; break
-            fi
-            echo "⚠️ Percobaan clone SUSFS gagal ($i/3)... mencoba lagi."; rm -rf /tmp/susfs4ksu; sleep $((i*10))
-          done
-          
-          [ "$ok" = 1 ] || die "Fatal Error: Gagal melakukan clone repositori susfs4ksu setelah 3 kali percobaan."
-
-          PATCH_FILE=/tmp/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-          [ -f "$PATCH_FILE" ] || die "Fatal Error: File patch SUSFS tidak ditemukan di $PATCH_FILE"
-          
-          echo "🔍 Menguji kompabilitas patch (simulasi/dry-run)..."
-          # Kita lakukan dry-run terlebih dahulu (simulasi). Jika error, masuk ke blok 'else'
-          if patch -d "$KSU_DIR" -p1 --forward --dry-run < "$PATCH_FILE" > /dev/null 2>&1; then
-            echo "✅ Simulasi berhasil! Menerapkan patch sesungguhnya..."
-            # Karena simulasi aman, kita terapkan secara nyata (hapus --dry-run)
-            patch -d "$KSU_DIR" -p1 --forward --batch < "$PATCH_FILE" \
-              || die "Fatal Error: Gagal saat menerapkan patch sesungguhnya."
-            echo "✅ Patch SUSFS berhasil dipasang!"
-          else
-            die "Fatal Error: Uji coba patch gagal! Kode sumber Root Manager ($KSU_MANAGER) bentrok atau patch sudah pernah diterapkan secara berbeda. Proses dibatalkan dengan aman."
-          fi
 
       - name: '⚙️ Inject Reflex Governor'
         if: github.event.inputs.gaming_mode == 'Enabled'
@@ -792,7 +671,128 @@ jobs:
             rm -f "$FAIR_C.orig"
             echo "✅ fair.c gaming bias terpasang"
           fi
+          
+      - name: "😋 Add BBG Support"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          scripts/config --file arch/arm64/configs/${{ env.DEFCONFIG_NAME }} -e CONFIG_BBG
+          sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+          
+      - name: "🔧 Add NoMount Support"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
+          
+      - name: "⚔️ Setup root manager (${{ inputs.ksu_manager }})"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          # Kita petakan input dari GitHub Actions ke Environment Variable Bash dengan aman di sini
+          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
+          KSU_REF: ${{ inputs.ksu_ref }}
+          # Tambahkan input untuk mengontrol SUSFS (bisa dari inputs GitHub Actions, default 'Enabled')
+          ENABLE_SUSFS: ${{ inputs.susfsSupport || 'Enabled' }}
+        run: |
+          set -euo pipefail
+          die() { echo "::error::$*"; exit 1; }
 
+          MULTI_MANAGER_PATCH="https://raw.githubusercontent.com/RapliVx/kernel_builder/refs/heads/main/patch/ksun-add-more-managers-support.patch"
+          EXTRA_PATCH_URL=""
+
+          # Konfigurasi per manager
+          case "$KSU_MANAGER" in
+            BakaSU)                 REPO="Baka-SU/BakaSU";              SETUP_BRANCH=main;      DEFAULT_REF=main;      NEED_SUSFS_PATCH=0 ;;
+            BakaSU-susfs)           REPO="Baka-SU/BakaSU";              SETUP_BRANCH=sync-susfs;DEFAULT_REF=sync-susfs;NEED_SUSFS_PATCH=0 ;;
+            SukiSU-Ultra)           REPO="SukiSU-Ultra/SukiSU-Ultra";   SETUP_BRANCH=main;      DEFAULT_REF=builtin;   NEED_SUSFS_PATCH=0 ;;
+            KernelSU-Next)          REPO="KernelSU-Next/KernelSU-Next"; SETUP_BRANCH=dev;       DEFAULT_REF="";        NEED_SUSFS_PATCH=1 ;;
+            KernelSU-Next-pershoot) REPO="pershoot/KernelSU-Next";      SETUP_BRANCH=dev-susfs; DEFAULT_REF=dev-susfs; NEED_SUSFS_PATCH=0; EXTRA_PATCH_URL="$MULTI_MANAGER_PATCH" ;;
+            KernelSU-Official)      REPO="tiann/KernelSU";              SETUP_BRANCH=main;      DEFAULT_REF="";        NEED_SUSFS_PATCH=1; EXTRA_PATCH_URL="$MULTI_MANAGER_PATCH" ;;
+            Rissu-KSU)              REPO="rsuntk/KernelSU";             SETUP_BRANCH=main;      DEFAULT_REF="";        NEED_SUSFS_PATCH=1 ;;
+            *) die "Fatal Error: Varian manager tidak dikenal: $KSU_MANAGER" ;;
+          esac
+
+          # Logika untuk menonaktifkan SUSFS jika diminta pengguna
+            if [ "$ENABLE_SUSFS" = "Disabled" ]; then
+               echo "ℹ️ Opsi SUSFS dinonaktifkan dari input. Mengabaikan kebutuhan patch SUSFS."
+               NEED_SUSFS_PATCH=0
+            fi
+
+          REF="${KSU_REF:-$DEFAULT_REF}"
+          SETUP_URL="https://raw.githubusercontent.com/${REPO}/${SETUP_BRANCH}/kernel/setup.sh"
+          echo "Manager: $KSU_MANAGER | ref: ${REF:-latest release tag}"
+          echo "Setup script: $SETUP_URL"
+
+          # Hapus instalasi sebelumnya jika ada, lalu jalankan skrip setup
+          rm -rf ./KernelSU ./KernelSU-Next ./drivers/kernelsu
+          curl -fsSL -o /tmp/ksu_setup.sh "$SETUP_URL" \
+            || die "Fatal Error: Gagal mengunduh skrip setup dari $SETUP_URL"
+            
+          bash -x /tmp/ksu_setup.sh ${REF:+"$REF"} \
+            || die "Fatal Error: Eksekusi setup.sh untuk $KSU_MANAGER gagal (ref: ${REF:-latest tag})"
+
+          # Cek ketersediaan symlink drivers/kernelsu
+          if [ ! -e drivers/kernelsu ]; then
+            die "Fatal Error: Symlink drivers/kernelsu tidak ditemukan atau rusak setelah setup."
+          fi
+          
+          # Ambil direktori asli dari root manager
+          KSU_DIR=$(readlink -f drivers/kernelsu)
+          echo "Install dir: $KSU_DIR"
+
+          # Teruskan hasil ke langkah berikutnya
+          {
+            echo "KSU_DIR=$KSU_DIR"
+            echo "NEED_SUSFS_PATCH=$NEED_SUSFS_PATCH"
+            echo "EXTRA_PATCH_URL=$EXTRA_PATCH_URL"
+            echo "KSU_REF_USED=${REF:-latest tag}"
+          } >> "$GITHUB_ENV"
+
+      - name: "🩹 Patch manager with SUSFS"
+        if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
+          SUSFS_BRANCH: gki-android13-5.15
+        run: |
+          set -euo pipefail
+          die() { echo "::error::$*"; exit 1; }
+
+          # Meskipun input Enabled, kita cek apakah varian Root Manager butuh patch eksternal
+          if [ "$NEED_SUSFS_PATCH" != 1 ]; then
+            echo "✅ Varian $KSU_MANAGER sudah menggunakan SUSFS bawaan (built-in). Melewati proses patch manual."
+            exit 0
+          fi
+
+          echo "Menerapkan patch SUSFS (branch: $SUSFS_BRANCH) ke $KSU_DIR"
+          rm -rf /tmp/susfs4ksu
+          ok=0
+          for i in 1 2 3; do
+            if git clone --depth=1 -b "$SUSFS_BRANCH" https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs4ksu; then
+              ok=1; break
+            fi
+            echo "⚠️ Percobaan clone SUSFS gagal ($i/3)... mencoba lagi."; rm -rf /tmp/susfs4ksu; sleep $((i*10))
+          done
+          
+          [ "$ok" = 1 ] || die "Fatal Error: Gagal melakukan clone repositori susfs4ksu setelah 3 kali percobaan."
+
+          PATCH_FILE=/tmp/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          [ -f "$PATCH_FILE" ] || die "Fatal Error: File patch SUSFS tidak ditemukan di $PATCH_FILE"
+          
+          echo "🔍 Menguji kompabilitas patch (simulasi/dry-run)..."
+          # Kita lakukan dry-run terlebih dahulu (simulasi). Jika error, masuk ke blok 'else'
+          if patch -d "$KSU_DIR" -p1 --forward --dry-run < "$PATCH_FILE" > /dev/null 2>&1; then
+            echo "✅ Simulasi berhasil! Menerapkan patch sesungguhnya..."
+            # Karena simulasi aman, kita terapkan secara nyata (hapus --dry-run)
+            patch -d "$KSU_DIR" -p1 --forward --batch < "$PATCH_FILE" \
+              || die "Fatal Error: Gagal saat menerapkan patch sesungguhnya."
+            echo "✅ Patch SUSFS berhasil dipasang!"
+          else
+            die "Fatal Error: Uji coba patch gagal! Kode sumber Root Manager ($KSU_MANAGER) bentrok atau patch sudah pernah diterapkan secara berbeda. Proses dibatalkan dengan aman."
+          fi
+      
       - name: "🧩 Extra manager patch & enable KSU"
         if: matrix.kernel.enable_ksu == true
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
