@@ -1240,6 +1240,25 @@ jobs:
              echo "::notice::Secret Telegram belum diisi, notifikasi dilewati"; exit 0
            fi
 
+           # Logika dinamis berdasarkan input user
+           if [ "${{ inputs.susfsSupport }}" = "Disabled" ]; then
+             SUSFS_TEXT="Disabled"
+           else
+             SUSFS_TEXT="Enabled (GKI A13-5.15)"
+           fi
+
+           if [ "${{ inputs.droidspaces_support }}" = "Disabled" ]; then
+             DROIDSPACES_TEXT="Disabled"
+           else
+             DROIDSPACES_TEXT="Enabled (running optimally)"
+           fi
+
+           if [ "${{ inputs.gaming_mode }}" = "Enabled" ]; then
+             GAMING_TEXT="Enabled (Vorpal + Fair Scheduler)"
+           else
+             GAMING_TEXT="Disabled"
+           fi
+
            esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
            IMAGES=$(cd AnyKernel3 && ls Image.* 2>/dev/null | sed 's/^Image\.//' | paste -sd, - | sed 's/,/, /g')
            MANAGER=$(printf '%s' "$KSU_MANAGER${KSU_REF:+ @ $KSU_REF}" | esc)
@@ -1253,7 +1272,7 @@ jobs:
            else
              # fallback to inputs if file not present
              if [ "${{ github.event.inputs.toolchain_type }}" = "custom-tools" ]; then
-               BUILD_TOOLS="custom-tools (unknown clang)"
+               BUILD_TOOLS="custom-tools (Cirrus clang)"
              else
                BUILD_TOOLS="android-tools (clang-r547379)"
              fi
