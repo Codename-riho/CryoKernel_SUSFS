@@ -911,6 +911,13 @@ jobs:
           SUSFS_HEAD=$(git -C susfs4ksu rev-parse --short HEAD)
           echo "SUSFS4KSU @ $SUSFS_HEAD"
 
+          # Lokasi file SUSFS (dipakai di langkah patch & salin source)
+          PDIR="susfs4ksu/kernel_patches"
+          SUSFS_KERNEL_PATCH="$PDIR/50_add_susfs_in_gki-android13-5.15.patch"
+          for req in "$SUSFS_KERNEL_PATCH" "$PDIR/fs/susfs.c" "$PDIR/include/linux/susfs.h"; do
+            [ -f "$req" ] || { echo "::error::File SUSFS tidak ditemukan: $req (commit ${SUSFS_HEAD})"; exit 1; }
+          done
+
           # ───────────────────────── 2. Fake patch (agar konteks hunk cocok) ─────────────────────────
           NS_FAKE_PATCHED=0
           MM_FAKE_PATCHED=0
@@ -935,7 +942,12 @@ jobs:
           # ───────────────────────── 4. Terapkan patch kernel SUSFS ─────────────────────────
           echo "🔧 Applying SUSFS kernel patch..."
           find . -name '*.rej' -not -path './susfs4ksu/*' -delete
-          if patch -p1 -R --dry-run -s < "$SUSFS_KERNEL_PATCH" > /dev/null 2>&1; then
+            already_applied() {
+            local out
+            out=$(patch -p1 -R --dry-run -F0 --batch < "$SUSFS_KERNEL_PATCH" 2>&1) || return 1
+            ! grep -qiE 'skipping patch|reversed|unreversed|ignoring|failed|ignored' <<< "$out"
+          }
+          if already_applied; then
             echo "ℹ️ Patch sudah terpasang sebelumnya, dilewati"
           else
             # Fuzz 0 (BUKAN -F3): fuzz tinggi terbukti bisa menempatkan hunk di fungsi yang SALAH.
