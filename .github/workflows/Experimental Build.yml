@@ -39,8 +39,16 @@ on:
         description: "Repo clang (HANYA DIPAKAI JIKA memilih 'custom-tools' di atas)"
         type: string
         default: greenforce-project/greenforce_clang
+      droidspaces_support: 
+       description: "Add droidspaces proper support?"
+       required: true
+       type: choice
+       default: "Enabled"
+       options:
+         - "Enabled"
+         - "Disabled"    
       susfsSupport:
-        description: "Add SUSFS Implementation"
+        description: "Add SUSFS Implementation?"
         required: true
         type: choice
         default: "Enabled"
@@ -401,6 +409,7 @@ jobs:
           echo "Localversion: $VER"
                     
       - name: "🚀 Add Droidspaces Support (kABI patch + GKI defconfig)"
+        if: github.event.inputs.droidspaces_support == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           DS_REF: main                  # branch/tag/commit Droidspaces-OSS
@@ -773,6 +782,7 @@ jobs:
           echo "🎉 SUSFS Integration setup complete!"
           
       - name: "📝 Append custom Makefile line"
+        if: github.event.inputs.toolchain_type == 'android-tools'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
