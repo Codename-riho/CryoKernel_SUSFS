@@ -1037,6 +1037,8 @@ jobs:
              echo "::notice::Secret Telegram belum diisi, notifikasi dilewati"; exit 0
            fi
 
+           IMAGE_URL=
+
            esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
            IMAGES=$(cd AnyKernel3 && ls Image.* 2>/dev/null | sed 's/^Image\.//' | paste -sd, - | sed 's/,/, /g')
            MANAGER=$(printf '%s' "$KSU_MANAGER${KSU_REF:+ @ $KSU_REF}" | esc)
@@ -1082,7 +1084,7 @@ jobs:
            )
            
            # Perintah ini yang sebelumnya hilang untuk mengirim isi dari variabel MSG
-             RESP=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+             RESP=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
              --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
              --data-urlencode "parse_mode=HTML" \
              --data-urlencode 'link_preview_options={"is_disabled":true}' \
@@ -1116,6 +1118,8 @@ jobs:
           if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_USER_ID:-}" ]; then
             echo "::notice::Secret Telegram belum diisi, notifikasi dilewati"; exit 0
           fi
+
+          IMAGE_URL=
 
           API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
           esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
@@ -1166,7 +1170,7 @@ jobs:
           )
           
            # Perintah ini yang sebelumnya hilang untuk mengirim isi dari variabel MSG
-           RESP=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+           RESP=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
              --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
              --data-urlencode "parse_mode=HTML" \
              --data-urlencode 'link_preview_options={"is_disabled":true}' \
