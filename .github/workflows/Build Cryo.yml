@@ -832,10 +832,25 @@ jobs:
           echo "Mengaktifkan CONFIG_KSU pada defconfig $DEFCONFIG_NAME..."
           scripts/config --file "$CONFIG_PATH" -e CONFIG_KSU
 
+          # KPM hanya untuk varian "SukiSU-Ultra+KPM"
+          KPM_STATE=""
+          if [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ]; then
+            grep -qE '^\s*config\s+KPM\b' "$KSU_DIR/kernel/Kconfig" \
+              || die "Fatal Error: Ref SukiSU ini ($KSU_REF_USED) tidak punya CONFIG_KPM. Pakai ref lain atau pilih SukiSU-Ultra."
+            echo "Mengaktifkan CONFIG_KPM..."
+            scripts/config --file "$CONFIG_PATH" -e CONFIG_KPM
+            KPM_STATE="aktif"
+          else
+            echo "ℹ️ KPM dilewati (hanya untuk varian SukiSU-Ultra+KPM)."
+          fi
+
           VER=$(git -C "$KSU_DIR" describe --tags --always 2>/dev/null || echo Unknown)
           echo "✅ $KSU_MANAGER setup selesai dengan versi: $VER"
-          echo "- Root manager: **$KSU_MANAGER** ($VER)" >> "$GITHUB_STEP_SUMMARY"
-                 
+          {
+            echo "- Root manager: **$KSU_MANAGER** ($VER)"
+            if [ -n "$KPM_STATE" ]; then echo "- KPM: $KPM_STATE"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          
       - name: "🚀 Inject SUSFS Integration"
         if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
