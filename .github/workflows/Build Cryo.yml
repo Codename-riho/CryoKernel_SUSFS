@@ -73,9 +73,9 @@ on:
         type: boolean
       susfs_commit:
         description: "Commit hash SUSFS4KSU (kosongkan untuk mengambil versi terbaru)"
-        required: true
+        required: false
         type: string
-        default: "2ad297356931ba06b4edc0860f42fdd143b02ffd"
+        default: ""
       gaming_mode:
         description: "Gaming mode: Enabled = sertakan Vorpal governor + bias scheduler (fair.c); Disabled = kernel standar"
         type: choice
