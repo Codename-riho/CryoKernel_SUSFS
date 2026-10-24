@@ -1028,6 +1028,7 @@ jobs:
         env:
            TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
            TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
+           TELEGRAM_IMAGE_URL: ${{ secrets.TELEGRAM_IMAGE_URL }}
            KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
            KSU_REF: ${{ inputs.ksu_ref }}
            DEVICE_NAME: "Redmi Note 12 4G"
@@ -1036,8 +1037,6 @@ jobs:
            if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_USER_ID" ]; then
              echo "::notice::Secret Telegram belum diisi, notifikasi dilewati"; exit 0
            fi
-
-           IMAGE_URL=
 
            esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
            IMAGES=$(cd AnyKernel3 && ls Image.* 2>/dev/null | sed 's/^Image\.//' | paste -sd, - | sed 's/,/, /g')
@@ -1083,13 +1082,12 @@ jobs:
            EOT
            )
            
-           # Perintah ini yang sebelumnya hilang untuk mengirim isi dari variabel MSG
              RESP=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
              --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
-             --data-urlencode "parse_mode=HTML" \
-             --data-urlencode 'link_preview_options={"is_disabled":true}' \
-             --data-urlencode "text=${MSG}" || true)
-           
+             --data-urlencode "photo=${TELEGRAM_IMAGE_URL}" \
+             --data-urlencode "caption=${MSG}" \
+             --data-urlencode "parse_mode=HTML" || true)
+             
            echo "$RESP" | jq -e '.ok' >/dev/null 2>&1 \
              && echo "✅ Telegram terkirim" \
              || echo "::warning::Telegram menolak pesan: $(echo "$RESP" | jq -r '.description // empty' 2>/dev/null)" 
@@ -1107,6 +1105,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
+          TELEGRAM_IMAGE_URL: ${{ secrets.TELEGRAM_IMAGE_URL }}
           KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
           KSU_REF: ${{ inputs.ksu_ref }}
           DEVICE_NAME: "Redmi Note 12 4G"
@@ -1118,8 +1117,6 @@ jobs:
           if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_USER_ID:-}" ]; then
             echo "::notice::Secret Telegram belum diisi, notifikasi dilewati"; exit 0
           fi
-
-          IMAGE_URL=
 
           API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
           esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
@@ -1154,7 +1151,7 @@ jobs:
           • Branch: <code>android13-5.15-lts</code> (GKI), <code>kernel.lnx.5.15.r1-rel</code> (CLO)
           • Device: <code>$(printf '%s' "$DEVICE_NAME" | esc)</code>
 
-          <b>⚙️ Configuration:</b>
+          <b>👾 Configuration:</b>
           • LTO: <code>full</code>
           • Optimization: <code>-O2</code>
           • Build Type: <code>both</code>
@@ -1169,12 +1166,11 @@ jobs:
           EOF
           )
           
-           # Perintah ini yang sebelumnya hilang untuk mengirim isi dari variabel MSG
            RESP=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto" \
              --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
-             --data-urlencode "parse_mode=HTML" \
-             --data-urlencode 'link_preview_options={"is_disabled":true}' \
-             --data-urlencode "text=${MSG}" || true)
+             --data-urlencode "photo=${TELEGRAM_IMAGE_URL}" \
+             --data-urlencode "caption=${MSG}" \
+             --data-urlencode "parse_mode=HTML" || true)
            
            echo "$RESP" | jq -e '.ok' >/dev/null 2>&1 \
              && echo "✅ Telegram terkirim" \
