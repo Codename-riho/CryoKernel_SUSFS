@@ -1054,10 +1054,7 @@ jobs:
           
       - name: "🔨 Build kernel"
         if: github.event.inputs.toolchain_type == 'android-tools'
-        working-directory: ${{ env.WORK_DIR }}
-        env:
-          KBUILD_BUILD_USER: dyatz
-          KBUILD_BUILD_HOST: GitHub
+        working-directory: ${{ env.WORK_DIR }}    
         run: |
           set -o pipefail
           
@@ -1075,7 +1072,22 @@ jobs:
           # samakan dengan jalur build.sh (LTO=full)
           scripts/config --file out/.config -d LTO_CLANG_THIN -e LTO_CLANG_FULL
           make ARCH=arm64 LLVM=1 O=out olddefconfig
+          # Pastikan config penting tidak hilang setelah resolusi dependensi
+          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_KPROFILES CONFIG_TCP_CONG_BBR3 CONFIG_FB"
+          [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
 
+          {
+            echo "### Cek .config akhir"
+            for c in $CHECK_LIST; do
+              if grep -q "^${c}=y" out/.config; then
+                echo "- ✅ \`$c=y\`"
+              else
+                echo "- ⚠️ \`$c\` TIDAK aktif"
+                echo "::warning::$c tidak aktif di .config akhir"
+              fi
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          
       - name: "🎶 Build kernel"
         if: github.event.inputs.toolchain_type == 'custom-tools'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
