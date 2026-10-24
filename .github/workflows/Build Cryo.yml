@@ -1185,7 +1185,7 @@ jobs:
           ║   • Extra TCP Congestion                            ║
           ║   • Homemade, stock-like feel                       ║
           ║                                                     ║
-          ║  * ETIR (TOOLCHAIN) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~║
+          ║  * E.T.I.R (TOOLCHAIN) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~║
           ║   • Cirrus clang 24.0.0 / Clang r547379             ║
           ║                                                     ║
           ║  * YOUR AUTHORITY (ROOT & SECURITY) ~~~~~~~~~~~~~~~ ║
@@ -1294,7 +1294,7 @@ jobs:
           if [ -n "$BT" ]; then
             BUILD_TOOLS=$(head -n1 "$BT" | tr -d '\r\n')
           elif [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
-            BUILD_TOOLS="custom-tools (unknown clang)"
+            BUILD_TOOLS="custom-tools (Cirrus clang)"
           else
             BUILD_TOOLS="android-tools (clang-r547379)"
           fi
@@ -1406,7 +1406,7 @@ jobs:
 
           # Artifact build_tools.txt tidak ada di job ini, jadi diturunkan dari input
           if [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
-            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:-unknown})"
+            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:inputs.customClangRepo})"
           else
             BUILD_TOOLS="android-tools (clang-r547379)"
           fi
