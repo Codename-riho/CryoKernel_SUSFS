@@ -890,7 +890,7 @@ jobs:
             local i
             for i in 1 2 3; do
           echo "🔧 Applying SUSFS -> KernelSU patch..."
-          KSU_PATCH="$PWD/$PDIR/KernelSU/10_enable_susfs_for_ksu.patch"
+          KSU_PATCH="$PWD/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           if [ ! -d KernelSU ]; then
             echo "::error::Folder KernelSU tidak ditemukan, patch SUSFS->KernelSU tidak bisa diterapkan"
             exit 1
