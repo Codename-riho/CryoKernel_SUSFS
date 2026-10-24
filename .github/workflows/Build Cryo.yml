@@ -1,4 +1,4 @@
-name: "Build Experiental"
+name: "Build Cryo Kernel"
 
 env:
   OUT_DIR: "out"
@@ -957,56 +957,53 @@ jobs:
           
           # Create banner
           cat > AnyKernel3/banner << 'EOF'
-          ╔═════════════════════════════════════════════════════╗
-          ║                           __                        ║
-          ║                           ##                        ║
-          ║                          ####                       ║
-          ║                         ##""##                      ║
-          ║                        ##"  "##                     ║
-          ║          ___           ##_  _##           ___       ║
-          ║          "#########_    "####"    _#########"       ║
-          ║            ##_   "##_    "##"    _##"   _##         ║
-          ║             "##_   ##_  _ ## _  _##   _##"          ║
-          ║               ########__######__########            ║
-          ║                       _########_                    ║
-          ║                       "########"                    ║
-          ║               ########""######""########            ║
-          ║             _##"   ##"  " ## "  "##   "##_          ║
-          ║            ##"   _##"    _##_    "##_   "##         ║
-          ║          _#########"    _####_    "#########_       ║
-          ║          """           ##"  "##           """       ║
-          ║                        ##_  _##                     ║
-          ║                         ##__##                      ║
-          ║                          ####                       ║
-          ║                           ##                        ║
-          ║                           ""                        ║
+          ╔═════════════════════ * ═ + ═ * ═════════════════════╗
           ║                                                     ║
-          ║                     CRYO Kernel                     ║
+          ║                          *                          ║
+          ║                    *     |     *                    ║
+          ║                      *   |   *                      ║
+          ║                        * | *                        ║
+          ║               * - - - - -+- - - - - *               ║
+          ║                        * | *                        ║
+          ║                      *   |   *                      ║
+          ║                    *     |     *                    ║
+          ║                          *                          ║
+          ║                                                     ║
+          ║                C R Y O   K E R N E L                ║
+          ║   -----*  Forged in the cold of Snezhnaya  *-----   ║
           ║                    by @Dyatz 685                    ║
           ║                                                     ║
+          ╠═════════════════════ * ═ + ═ * ═════════════════════╣
+          ║                                                     ║
+          ║  * CRYO AUTHORITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ║
+          ║   • Full LTO                                        ║
+          ║   • Extra TCP Congestion                            ║
+          ║   • Homemade, stock-like feel                       ║
+          ║                                                     ║
+          ║  * ETIR (TOOLCHAIN) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~║
+          ║   • Cirrus clang 24.0.0 / Clang r547379             ║
+          ║                                                     ║
+          ║  * YOUR AUTHORITY (ROOT & SECURITY) ~~~~~~~~~~~~~~~ ║
+          ║   • Vanilla & BakaSU (Multi Manager Support)        ║
+          ║   • Integrated with SUSFS (GKI A13-5.15)            ║
+          ║   • Metamodule Nomount built-in Support             ║
+          ║   • Baseband-guard v1 Support                       ║
+          ║                                                     ║
+          ║  * SNOWBOUND EXTRAS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ║
+          ║   • Droidspaces Support with the note activated     ║
+          ║                                                     ║
+          ╠═════════════════════ * ═ + ═ * ═════════════════════╣
+          ║                                                     ║
+          ║  Before you defy fate, how good you are  :          ║
+          ║   • Your device is compatible                       ║
+          ║   • You have a backup of your current kernel        ║
+          ║                                                     ║
+          ║               Cold. Sharp. Unyielding.              ║
           ║              Powered by Github Actions              ║
-          ║                                                     ║
-          ╠═════════════════════════════════════════════════════╣
-          ║                                                     ║
-          ║     Features:                                       ║
-          ║     • Full LTO                                      ║
-          ║     • Extra TCP Congestion                          ║
-          ║     • Cirrus clang 24.0.0/Clang r547379             ║
-          ║     • Droidspaces Support                           ║
-          ║     • Baseband-guard v1 Support                     ║
-          ║     • Vanilla & BakaSU (Multi Manager Support).     ║
-          ║     • Integrated with SUSFS (GKI A13-5.15)          ║
-          ║     • Metamodule Nomount built-in Support           ║
-          ║     • Homemade Like stock !!!!                      ║
-          ║                                                     ║
-          ║     Please ensure:                                  ║
-          ║     • Your device is compatible                     ║
-          ║     • You have a backup of your current kernel      ║
-          ║                                                     ║
-          ╚═════════════════════════════════════════════════════╝
+          ╚═════════════════════ * ═ + ═ * ═════════════════════╝
           Installing Cryo Kernel...
           EOF
-
+          
           # Create ZIP
           ZIP_NAME="CryoKernel_$(TZ=Asia/Jakarta date +'%Y-%m-%d').zip"
           cd AnyKernel3
