@@ -37,7 +37,10 @@ on:
         default: android-tools       
       customClangRepo:
         description: "Repo clang (HANYA DIPAKAI JIKA memilih 'custom-tools' di atas)"
-        type: string
+        type: choice 
+        options:
+          - greenforce-project/greenforce_clang
+          - Neutron-Toolchains/antman
         default: greenforce-project/greenforce_clang
       droidspaces_support: 
        description: "Add droidspaces proper support?"
