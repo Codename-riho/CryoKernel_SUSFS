@@ -1213,6 +1213,24 @@ jobs:
           fi
 
           echo "🎉 SUSFS Integration setup complete!"
+
+      - name: "🔗 Cek simbol hook SUSFS dan KSU"
+        if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -uo pipefail
+          MISSING=0
+          for s in ksu_preinit_handle_post_execveat ksu_setup_preinit_file my_setprocattr my_write_context my_write_access; do
+            echo "== $s"
+            echo "  dipanggil di kernel:"
+            grep -rnw --include='*.c' --include='*.h' "$s" fs security kernel include 2>/dev/null | grep -v 'include/linux/susfs' | head -3 | sed 's/^/    /'
+            DEF=$(grep -rnw "$s" "$KSU_DIR" 2>/dev/null | head -3)
+            if [ -n "$DEF" ]; then echo "  ada di KSU:"; echo "$DEF" | sed 's/^/    /'
+            else echo "  ❌ TIDAK ADA di KSU ($KSU_DIR)"; MISSING=$((MISSING+1)); fi
+          done
+          grep -c ksu_selinux_hide_running security/selinux/hooks.c || true
+          echo "Simbol hilang: $MISSING"
+          [ "$MISSING" -eq 0 ] || echo "::warning::Ada hook SUSFS di kernel yang tidak punya pasangan di KSU, link akan gagal"
                   
       - name: "📝 Append custom Makefile line"
         if: github.event.inputs.toolchain_type == 'android-tools'
