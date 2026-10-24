@@ -889,6 +889,24 @@ jobs:
           clone_susfs() {
             local i
             for i in 1 2 3; do
+          echo "🔧 Applying SUSFS -> KernelSU patch..."
+          KSU_PATCH="$PWD/$PDIR/KernelSU/10_enable_susfs_for_ksu.patch"
+          if [ ! -d KernelSU ]; then
+            echo "::error::Folder KernelSU tidak ditemukan, patch SUSFS->KernelSU tidak bisa diterapkan"
+            exit 1
+          fi
+          if [ ! -f "$KSU_PATCH" ]; then
+            echo "::error::$KSU_PATCH tidak ada di repo SUSFS4KSU"
+            exit 1
+          fi
+          (
+            cd KernelSU
+            if patch -p1 -R --dry-run -s < "$KSU_PATCH" > /dev/null 2>&1; then
+              echo "ℹ️ Patch KernelSU sudah terpasang sebelumnya, dilewati"
+            else
+              patch -p1 --forward -F0 -l --no-backup-if-mismatch < "$KSU_PATCH" 2>&1 | tee "$LOG_DIR/ksu_patch.log" || true
+            fi
+          )
               rm -rf susfs4ksu
               if [ -n "${SUSFS_COMMIT:-}" ]; then
                 echo "Menerapkan SUSFS4KSU pada commit spesifik: $SUSFS_COMMIT"
@@ -935,20 +953,43 @@ jobs:
             echo "ℹ️ mm.h include tidak ada di fs/proc/task_mmu.c, fake patch dilewati"
           fi
 
-          # ───────────────────────── 3. Terapkan patch kernel SUSFS ─────────────────────────
+          # ───────────────────────── 3. Daftar file yang disentuh patch (sebelum susfs4ksu dihapus) ─────────────────────────
+          mapfile -t PATCHED < <(grep -E '^\+\+\+ b/' "$SUSFS_KERNEL_PATCH" | sed -E 's#^\+\+\+ b/##; s#[[:space:]].*$##' | sort -u || true)
+
+          # ───────────────────────── 4. Terapkan patch kernel SUSFS ─────────────────────────
           echo "🔧 Applying SUSFS kernel patch..."
           find . -name '*.rej' -not -path './susfs4ksu/*' -delete
           if patch -p1 -R --dry-run -s < "$SUSFS_KERNEL_PATCH" > /dev/null 2>&1; then
             echo "ℹ️ Patch sudah terpasang sebelumnya, dilewati"
           else
-            # Fuzz 0 (BUKAN -F3): fuzz tinggi terbukti bisa menempatkan hunk di fungsi yang SALAH
-            # (hasil pengujian: menyisipkan pemanggilan fungsi dengan parameter yang tidak ada di
-            # scope tersebut, lolos tanpa .rej tapi kodenya salah dan gagal kompilasi membingungkan).
-            # -l mengabaikan whitespace, --forward melewati hunk yang sudah terpasang.
+            # Fuzz 0 (BUKAN -F3): fuzz tinggi terbukti bisa menempatkan hunk di fungsi yang SALAH.
             patch -p1 --forward -F0 -l --no-backup-if-mismatch < "$SUSFS_KERNEL_PATCH" 2>&1 | tee "$LOG_DIR/patch.log" || true
           fi
 
-          # ───────────────────────── 4. Force hunk yang gagal ─────────────────────────
+          # ───────────────────────── 5. Kembalikan fake patch SEBELUM force-hunk ─────────────────────────
+          # Penting: ini harus terjadi sebelum force-hunk. Banyak hunk SUSFS memakai baris
+          # trace/hooks/{blk,mm}.h sebagai KONTEKS (bukan yang diubah), jadi selama baris itu
+          # masih sengaja dihapus oleh fake-patch, force-hunk tidak akan pernah cocok dengan benar.
+          echo "↩️ Reverting namespace.c Fake Patch (if applicable)"
+          if [ "$NS_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/blk.h' fs/namespace.c; then
+            if grep -q '^#include "internal.h"$' fs/namespace.c; then
+              sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
+              echo "✔ Restored blk.h include"
+            else
+              echo "::warning::Anchor #include \"internal.h\" tidak ditemukan, blk.h tidak bisa dikembalikan otomatis"
+            fi
+          fi
+          echo "↩️ Reverting task_mmu.c Fake Patch (if applicable)"
+          if [ "$MM_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/mm.h' fs/proc/task_mmu.c; then
+            if grep -q '^#include <linux/pkeys.h>$' fs/proc/task_mmu.c; then
+              sed -i '/^#include <linux\/pkeys.h>$/a #include <trace/hooks/mm.h>' fs/proc/task_mmu.c
+              echo "✔ Restored mm.h include"
+            else
+              echo "::warning::Anchor #include <linux/pkeys.h> tidak ditemukan, mm.h tidak bisa dikembalikan otomatis"
+            fi
+          fi
+
+          # ───────────────────────── 6. Force hunk yang gagal ─────────────────────────
           cat > "$LOG_DIR/force_hunk.py" << 'PY'
           #!/usr/bin/env python3
           """Paksa terapkan hunk dari file .rej dengan pencocokan fuzzy (abaikan whitespace)."""
@@ -1014,7 +1055,7 @@ jobs:
                       k += 1
                   elif t == "-":
                       if norm(tgt[i + k]) != norm(l):
-                          out.append(tgt[i + k])  # tidak cocok: jangan hapus baris yang salah
+                          out.append(tgt[i + k])
                       k += 1
                   else:
                       out.append(l)
@@ -1070,7 +1111,7 @@ jobs:
             echo "✅ Semua hunk patch SUSFS terpasang tanpa reject"
           fi
 
-          # ───────────────────────── 5. Salin source SUSFS + wiring build ─────────────────────────
+          # ───────────────────────── 7. Salin source SUSFS + wiring build ─────────────────────────
           echo "📄 Forcing SUSFS source injection..."
           mkdir -p fs include/linux
           cp -f "$PDIR/fs/susfs.c" fs/susfs.c
@@ -1095,7 +1136,7 @@ jobs:
             echo "✔ Created drivers/kernelsu symlink"
           fi
 
-          # ───────────────────────── 6. Pastikan header SUSFS ter-include di file yang dipatch ─────────────────────────
+          # ───────────────────────── 8. Pastikan header SUSFS ter-include di file yang dipatch ─────────────────────────
           insert_include() {
             local f="$1" inc="$2" ln
             ln=$(awk 'NR<=250 && /^#include/ {n=NR} END {print n+0}' "$f")
@@ -1105,7 +1146,6 @@ jobs:
             echo "✔ Menambahkan #include <$inc> ke $f"
           }
 
-          mapfile -t PATCHED < <(grep -E '^\+\+\+ b/' "$SUSFS_KERNEL_PATCH" | sed -E 's#^\+\+\+ b/##; s#[[:space:]].*$##' | sort -u || true)
           for f in "${PATCHED[@]}"; do
             case "$f" in *.c) ;; *) continue ;; esac
             [ -f "$f" ] || continue
@@ -1117,7 +1157,7 @@ jobs:
             fi
           done
 
-          # ───────────────────────── 7. Konfigurasi defconfig (tanpa duplikat/konflik) ─────────────────────────
+          # ───────────────────────── 9. Konfigurasi defconfig (tanpa duplikat/konflik) ─────────────────────────
           CONFIG_FILE="arch/arm64/configs/${DEFCONFIG_NAME}"
           [ -f "$CONFIG_FILE" ] || { echo "::error::defconfig tidak ada: $CONFIG_FILE"; exit 1; }
           if [ -n "$(tail -c1 "$CONFIG_FILE")" ]; then echo >> "$CONFIG_FILE"; fi
@@ -1146,27 +1186,7 @@ jobs:
           done
           echo "✅ KSU configs added"
 
-          # ───────────────────────── 8. Kembalikan fake patch ─────────────────────────
-          echo "↩️ Reverting namespace.c Fake Patch (if applicable)"
-          if [ "$NS_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/blk.h' fs/namespace.c; then
-            if grep -q '^#include "internal.h"$' fs/namespace.c; then
-              sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
-              echo "✔ Restored blk.h include"
-            else
-              echo "::warning::Anchor #include \"internal.h\" tidak ditemukan, blk.h tidak bisa dikembalikan otomatis"
-            fi
-          fi
-          echo "↩️ Reverting task_mmu.c Fake Patch (if applicable)"
-          if [ "$MM_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/mm.h' fs/proc/task_mmu.c; then
-            if grep -q '^#include <linux/pkeys.h>$' fs/proc/task_mmu.c; then
-              sed -i '/^#include <linux\/pkeys.h>$/a #include <trace/hooks/mm.h>' fs/proc/task_mmu.c
-              echo "✔ Restored mm.h include"
-            else
-              echo "::warning::Anchor #include <linux/pkeys.h> tidak ditemukan, mm.h tidak bisa dikembalikan otomatis"
-            fi
-          fi
-
-          # ───────────────────────── 9. Verifikasi akhir ─────────────────────────
+          # ───────────────────────── 10. Verifikasi akhir ─────────────────────────
           BAD=0
           for f in "${PATCHED[@]}"; do
             [ -f "$f" ] || continue
