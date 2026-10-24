@@ -889,24 +889,6 @@ jobs:
           clone_susfs() {
             local i
             for i in 1 2 3; do
-          echo "🔧 Applying SUSFS -> KernelSU patch..."
-          KSU_PATCH="$PWD/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          if [ ! -d KernelSU ]; then
-            echo "::error::Folder KernelSU tidak ditemukan, patch SUSFS->KernelSU tidak bisa diterapkan"
-            exit 1
-          fi
-          if [ ! -f "$KSU_PATCH" ]; then
-            echo "::error::$KSU_PATCH tidak ada di repo SUSFS4KSU"
-            exit 1
-          fi
-          (
-            cd KernelSU
-            if patch -p1 -R --dry-run -s < "$KSU_PATCH" > /dev/null 2>&1; then
-              echo "ℹ️ Patch KernelSU sudah terpasang sebelumnya, dilewati"
-            else
-              patch -p1 --forward -F0 -l --no-backup-if-mismatch < "$KSU_PATCH" 2>&1 | tee "$LOG_DIR/ksu_patch.log" || true
-            fi
-          )
               rm -rf susfs4ksu
               if [ -n "${SUSFS_COMMIT:-}" ]; then
                 echo "Menerapkan SUSFS4KSU pada commit spesifik: $SUSFS_COMMIT"
@@ -934,6 +916,25 @@ jobs:
           for f in "$SUSFS_KERNEL_PATCH" "$PDIR/fs/susfs.c" "$PDIR/include/linux/susfs.h"; do
             [ -f "$f" ] || { echo "::error::File wajib tidak ada di repo SUSFS4KSU: $f"; exit 1; }
           done
+
+          echo "🔧 Applying SUSFS -> KernelSU patch..."
+          KSU_PATCH="$PWD/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          if [ ! -d KernelSU ]; then
+            echo "::error::Folder KernelSU tidak ditemukan, patch SUSFS->KernelSU tidak bisa diterapkan"
+            exit 1
+          fi
+          if [ ! -f "$KSU_PATCH" ]; then
+            echo "::error::$KSU_PATCH tidak ada di repo SUSFS4KSU"
+            exit 1
+          fi
+          (
+            cd KernelSU
+            if patch -p1 -R --dry-run -s < "$KSU_PATCH" > /dev/null 2>&1; then
+              echo "ℹ️ Patch KernelSU sudah terpasang sebelumnya, dilewati"
+            else
+              patch -p1 --forward -F0 -l --no-backup-if-mismatch < "$KSU_PATCH" 2>&1 | tee "$LOG_DIR/ksu_patch.log" || true
+            fi
+          )
 
           # ───────────────────────── 2. Fake patch (agar konteks hunk cocok) ─────────────────────────
           NS_FAKE_PATCHED=0
