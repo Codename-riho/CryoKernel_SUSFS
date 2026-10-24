@@ -142,7 +142,12 @@ jobs:
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
           echo "BUILD_TIME=$(TZ=Asia/Jakarta date +'%Y-%m-%d')" >> $GITHUB_ENV
           sudo apt-get update -qq
-          sudo apt-get install -y repo rsync aria2  bc bison build-essential ca-certificates clang cpio curl dwarves flex gcc-aarch64-linux-gnu git libdw-dev libelf-dev libssl-dev lld llvm llvm-dev pkg-config python3 rsync unzip xz-utils zip    
+          sudo apt-get install -y repo rsync aria2  bc bison build-essential ca-certificates clang cpio curl dwarves flex gcc-aarch64-linux-gnu git libdw-dev libelf-dev libssl-dev lld llvm llvm-dev pkg-config python3 rsync unzip xz-utils zip  
+
+      - name: 🔍 Check Space (Before Cleanup)
+        run: |
+          echo "Disk space before cleanup:"
+          df -h /
           
       - name: 🧹 Aggressive Cleanup
         run: |
@@ -156,6 +161,11 @@ jobs:
           # Prune Docker to remove hidden images and build cache
           sudo docker image prune --all --force
           sudo docker builder prune -a -f
+
+      - name: 🔍 Check Space (After Cleanup)
+        run: |
+          echo "Disk space after cleanup:"
+          df -h /
           
       - name: 📐 Setup SWAP 24GB
         uses: pierotofy/set-swap-space@master
@@ -931,6 +941,12 @@ jobs:
           name: ${{ matrix.kernel.name }}-kernel
           path: ${{ env.WORK_DIR }}/out/dist/${{ env.OUTPUT_NAME }}
           retention-days: 1
+
+      - name: 🔍 Check Space (Post-Build)
+        if: always() # Run even if build fails to debug space issues
+        run: |
+          echo "Final disk space status:"
+          df -h /
                
   package-kernels:
     name: "📦 Package Kernels"
