@@ -58,6 +58,19 @@ on:
         options:
           - "Enabled"
           - "Disabled"
+      susfs_force_hunk:
+       description: "Paksa hunk yang gagal agar sukses"
+       required: true
+       type: choice
+       options:
+         - Enabled
+         - Disabled     
+       default: 'Enabled'
+      susfs_strict:
+        description: "Hentikan build kalau integrasi SUSFS tidak sempurna"
+        required: false
+        default: false
+        type: boolean
       susfs_commit:
         description: "Commit hash SUSFS4KSU (kosongkan untuk mengambil versi terbaru)"
         required: true
@@ -853,136 +866,346 @@ jobs:
             echo "- Root manager: **$KSU_MANAGER** ($VER)"
             if [ -n "$KPM_STATE" ]; then echo "- KPM: $KPM_STATE"; fi
           } >> "$GITHUB_STEP_SUMMARY"
-          
+
       - name: "🚀 Inject SUSFS Integration"
         if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
-          # Mengambil data dari input pengguna
           SUSFS_COMMIT: ${{ inputs.susfs_commit }}
+          FORCE_HUNK: ${{ github.event.inputs.susfs_force_hunk || 'Enabled' }}
+          SUSFS_STRICT: ${{ github.event.inputs.susfs_strict || 'false' }}
         run: |
-          echo "📦 Menyiapkan repositori SUSFS4KSU untuk kernel patches..."
-          
-          # Mengecek apakah variabel SUSFS_COMMIT memiliki isi
-          if [ -n "$SUSFS_COMMIT" ]; then
-            echo "Menerapkan SUSFS4KSU pada commit spesifik: $SUSFS_COMMIT"
-            # Clone tanpa --depth=1 agar riwayat commit tersedia, lalu checkout ke target commit
-            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 && \
-            git -C susfs4ksu checkout "$SUSFS_COMMIT" && break
-          else
-            echo "Input commit kosong. Mengunduh SUSFS4KSU versi terbaru (latest)..."
-            # Clone dengan --depth=1 untuk menghemat waktu komputasi
-            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 && break
-          fi
-          
+          set -euo pipefail
+          : "${DEFCONFIG_NAME:?DEFCONFIG_NAME belum di-set}"
+
+          LOG_DIR="${RUNNER_TEMP:-/tmp}/susfs_logs"
+          mkdir -p "$LOG_DIR"
+          SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          SUSFS_URL="https://gitlab.com/simonpunk/susfs4ksu.git"
+          SUSFS_BRANCH="gki-android13-5.15"
+
+          # ───────────────────────── 1. Clone SUSFS4KSU (retry, tanpa `break` liar) ─────────────────────────
+          echo "📦 Menyiapkan repositori SUSFS4KSU..."
+          clone_susfs() {
+            local i
+            for i in 1 2 3; do
+              rm -rf susfs4ksu
+              if [ -n "${SUSFS_COMMIT:-}" ]; then
+                echo "Menerapkan SUSFS4KSU pada commit spesifik: $SUSFS_COMMIT"
+                if git clone -q -b "$SUSFS_BRANCH" "$SUSFS_URL" susfs4ksu \
+                   && git -C susfs4ksu checkout -q "$SUSFS_COMMIT"; then
+                  return 0
+                fi
+              else
+                echo "Input commit kosong, mengambil versi terbaru (latest)..."
+                if git clone -q --depth=1 -b "$SUSFS_BRANCH" "$SUSFS_URL" susfs4ksu; then
+                  return 0
+                fi
+              fi
+              echo "⚠️ Clone SUSFS4KSU gagal ($i/3)"
+              sleep $((i * 5))
+            done
+            return 1
+          }
+          clone_susfs || { echo "::error::Gagal clone/checkout SUSFS4KSU"; exit 1; }
+          SUSFS_HEAD=$(git -C susfs4ksu rev-parse --short HEAD)
+          echo "SUSFS4KSU @ $SUSFS_HEAD"
+
+          PDIR="susfs4ksu/kernel_patches"
+          SUSFS_KERNEL_PATCH="$PDIR/50_add_susfs_in_gki-android13-5.15.patch"
+          for f in "$SUSFS_KERNEL_PATCH" "$PDIR/fs/susfs.c" "$PDIR/include/linux/susfs.h"; do
+            [ -f "$f" ] || { echo "::error::File wajib tidak ada di repo SUSFS4KSU: $f"; exit 1; }
+          done
+
+          # ───────────────────────── 2. Fake patch (agar konteks hunk cocok) ─────────────────────────
+          NS_FAKE_PATCHED=0
+          MM_FAKE_PATCHED=0
           echo "☣️ Applying namespace.c Fake Patch (if applicable)"
           if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
             sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
             NS_FAKE_PATCHED=1
           else
-            echo "ℹ️ blk.h include not present in fs/namespace.c — skipping fake patch"
-            NS_FAKE_PATCHED=0
+            echo "ℹ️ blk.h include tidak ada di fs/namespace.c, fake patch dilewati"
           fi
-
           echo "☣️ Applying task_mmu.c Fake Patch (if applicable)"
           if grep -q '^#include <trace/hooks/mm.h>$' fs/proc/task_mmu.c; then
             sed -i '/^#include <trace\/hooks\/mm.h>$/d' fs/proc/task_mmu.c
             MM_FAKE_PATCHED=1
           else
-            echo "ℹ️ mm.h include not present in fs/proc/task_mmu.c — skipping fake patch"
-            MM_FAKE_PATCHED=0
-          fi
-          
-          SUSFS_KERNEL_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          
-          echo "🔧 Applying SUSFS kernel patch..."
-          if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
-            echo "✅ SUSFS patch successfully applied"
-          else
-            echo "⚠️ SUSFS patch failed — copying files manually"
+            echo "ℹ️ mm.h include tidak ada di fs/proc/task_mmu.c, fake patch dilewati"
           fi
 
-          echo "🔧 Applying SUSFS -> KernelSU patch..."
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          
-          echo "📄 Forcing SUSFS source injection..."
-          
-          # Always replace fs/susfs.c
-          mkdir -p fs
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
-          echo "✔ Copied fs/susfs.c"
-          
-          # Always replace include/linux/susfs.h
-          mkdir -p include/linux
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
-          echo "✔ Copied include/linux/susfs.h"
-          
-          # Also install missing susfs_def.h
-          if [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ]; then
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
-            echo "✔ Copied include/linux/susfs_def.h"
+          # ───────────────────────── 3. Terapkan patch kernel SUSFS ─────────────────────────
+          echo "🔧 Applying SUSFS kernel patch..."
+          find . -name '*.rej' -not -path './susfs4ksu/*' -delete
+          if patch -p1 -R --dry-run -s < "$SUSFS_KERNEL_PATCH" > /dev/null 2>&1; then
+            echo "ℹ️ Patch sudah terpasang sebelumnya, dilewati"
           else
-            echo "⚠️ susfs_def.h not found in repo"
+            # Fuzz 0 (BUKAN -F3): fuzz tinggi terbukti bisa menempatkan hunk di fungsi yang SALAH
+            # (hasil pengujian: menyisipkan pemanggilan fungsi dengan parameter yang tidak ada di
+            # scope tersebut, lolos tanpa .rej tapi kodenya salah dan gagal kompilasi membingungkan).
+            # -l mengabaikan whitespace, --forward melewati hunk yang sudah terpasang.
+            patch -p1 --forward -F0 -l --no-backup-if-mismatch < "$SUSFS_KERNEL_PATCH" 2>&1 | tee "$LOG_DIR/patch.log" || true
           fi
-          
-          echo "🔍 Verifying SUSFS files..."
+
+          # ───────────────────────── 4. Force hunk yang gagal ─────────────────────────
+          cat > "$LOG_DIR/force_hunk.py" << 'PY'
+          #!/usr/bin/env python3
+          """Paksa terapkan hunk dari file .rej dengan pencocokan fuzzy (abaikan whitespace)."""
+          import os, re, shutil, sys
+
+          THRESHOLD = float(os.environ.get("FORCE_THRESHOLD", "0.5"))
+          BACKUP = os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "susfs_backup")
+
+
+          def norm(s):
+              return " ".join(s.split())
+
+
+          def parse_rej(path):
+              hunks, cur = [], None
+              with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+                  for raw in fh.read().split("\n"):
+                      m = re.match(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@", raw)
+                      if m:
+                          cur = {"start": int(m.group(1)), "lines": []}
+                          hunks.append(cur)
+                      elif cur is not None and raw[:1] in (" ", "+", "-"):
+                          cur["lines"].append((raw[0], raw[1:]))
+              return hunks
+
+
+          def locate(tgt_n, old_n, hint):
+              idx = [k for k, s in enumerate(old_n) if s]
+              if not idx or len(tgt_n) < len(old_n):
+                  return None, 0.0, 0
+              need = min(2, len(idx))
+              best_i, best_s, best_h = None, 0.0, 0
+              for i in range(len(tgt_n) - len(old_n) + 1):
+                  hits = 0
+                  for k in idx:
+                      if tgt_n[i + k] == old_n[k]:
+                          hits += 1
+                  if hits < need:
+                      continue
+                  s = hits / len(idx) - abs(i - hint) / (len(tgt_n) * 100.0)
+                  if s > best_s:
+                      best_i, best_s, best_h = i, s, hits
+              return best_i, best_s, best_h
+
+
+          def apply_hunk(tgt, hunk):
+              lines = hunk["lines"]
+              old = [l for t, l in lines if t in " -"]
+              added = [l for t, l in lines if t == "+"]
+              tgt_n = [norm(x) for x in tgt]
+              distinct = [norm(a) for a in added if len(norm(a)) > 12]
+              if distinct and all(a in set(tgt_n) for a in distinct):
+                  return "already", 0.0
+              if not old:
+                  return "fail", 0.0
+              i, score, hits = locate(tgt_n, [norm(x) for x in old], hunk["start"] - 1)
+              if i is None or score < THRESHOLD * 0.9:
+                  return "fail", score
+              out, k = [], 0
+              for t, l in lines:
+                  if t == " ":
+                      out.append(tgt[i + k])
+                      k += 1
+                  elif t == "-":
+                      if norm(tgt[i + k]) != norm(l):
+                          out.append(tgt[i + k])  # tidak cocok: jangan hapus baris yang salah
+                      k += 1
+                  else:
+                      out.append(l)
+              tgt[i:i + len(old)] = out
+              return "forced", score
+
+
+          def process(rej):
+              target = rej[:-4]
+              if not os.path.isfile(target):
+                  print(f"FAIL   {rej}: file target tidak ada")
+                  return False
+              with open(target, encoding="utf-8", errors="surrogateescape", newline="") as fh:
+                  tgt = fh.read().split("\n")
+              rel = os.path.relpath(target)
+              bak = os.path.join(BACKUP, rel)
+              if not os.path.exists(bak):
+                  os.makedirs(os.path.dirname(bak), exist_ok=True)
+                  shutil.copy2(target, bak)
+              ok, changed = True, False
+              for n, h in enumerate(parse_rej(rej), 1):
+                  status, score = apply_hunk(tgt, h)
+                  print(f"{status.upper():7s}{rel} hunk#{n} (baris ~{h['start']}, skor {score:.2f})")
+                  if status == "forced":
+                      changed = True
+                  elif status == "fail":
+                      ok = False
+              if changed:
+                  with open(target, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
+                      fh.write("\n".join(tgt))
+              if ok:
+                  os.replace(rej, rej + ".forced")
+              return ok
+
+
+          if __name__ == "__main__":
+              results = [process(r) for r in sys.argv[1:] if r.endswith(".rej")]
+              sys.exit(0 if all(results) else 1)
+          PY
+
+          mapfile -t REJS < <(find . -name '*.rej' -not -path './susfs4ksu/*' | sort)
+          FORCE_FAILED=0
+          if [ "${#REJS[@]}" -gt 0 ]; then
+            echo "⚠️ ${#REJS[@]} file .rej ditemukan: ${REJS[*]}"
+            if [ "$FORCE_HUNK" = "Enabled" ]; then
+              echo "💪 Force hunk aktif, mencoba menerapkan hunk yang gagal..."
+              python3 "$LOG_DIR/force_hunk.py" "${REJS[@]}" 2>&1 | tee "$LOG_DIR/force.log" || FORCE_FAILED=1
+            else
+              echo "ℹ️ Force hunk dimatikan (FORCE_HUNK=$FORCE_HUNK)"
+              FORCE_FAILED=1
+            fi
+          else
+            echo "✅ Semua hunk patch SUSFS terpasang tanpa reject"
+          fi
+
+          # ───────────────────────── 5. Salin source SUSFS + wiring build ─────────────────────────
+          echo "📄 Forcing SUSFS source injection..."
+          mkdir -p fs include/linux
+          cp -f "$PDIR/fs/susfs.c" fs/susfs.c
+          cp -f "$PDIR/include/linux/susfs.h" include/linux/susfs.h
+          if [ -f "$PDIR/include/linux/susfs_def.h" ]; then
+            cp -f "$PDIR/include/linux/susfs_def.h" include/linux/susfs_def.h
+          else
+            echo "⚠️ susfs_def.h tidak ada di repo SUSFS4KSU"
+          fi
           for f in fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h; do
             if [ -f "$f" ]; then echo "✔ Found: $f"; else echo "❌ Missing: $f"; fi
           done
-          
-          # Clean up SUSFS repo (we only needed kernel patches, not KSU integration)
           rm -rf susfs4ksu
-          
-          # Create symbolic link for drivers/kernelsu (if needed by build system)
-          if [ ! -L "drivers/kernelsu" ]; then
-            ln -sf ../KernelSU drivers/kernelsu
+
+          if ! grep -q 'susfs\.o' fs/Makefile; then
+            echo 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' >> fs/Makefile
+            echo "✔ susfs.o ditambahkan ke fs/Makefile"
+          fi
+
+          if [ -d KernelSU ] && [ ! -e drivers/kernelsu ]; then
+            ln -s ../KernelSU drivers/kernelsu
             echo "✔ Created drivers/kernelsu symlink"
           fi
 
-          echo "✅ SUSFS build wiring verified"
+          # ───────────────────────── 6. Pastikan header SUSFS ter-include di file yang dipatch ─────────────────────────
+          insert_include() {
+            local f="$1" inc="$2" ln
+            ln=$(awk 'NR<=250 && /^#include/ {n=NR} END {print n+0}' "$f")
+            if [ "$ln" -le 0 ]; then echo "⚠️ Tidak ada #include di $f"; return 1; fi
+            awk -v ln="$ln" -v inc="$inc" '{print} NR==ln {print "#ifdef CONFIG_KSU_SUSFS"; print "#include <" inc ">"; print "#endif"}' "$f" > "$f.tmp"
+            mv "$f.tmp" "$f"
+            echo "✔ Menambahkan #include <$inc> ke $f"
+          }
 
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
-          EOF
+          mapfile -t PATCHED < <(grep -E '^\+\+\+ b/' "$SUSFS_KERNEL_PATCH" | sed -E 's#^\+\+\+ b/##; s#[[:space:]].*$##' | sort -u || true)
+          for f in "${PATCHED[@]}"; do
+            case "$f" in *.c) ;; *) continue ;; esac
+            [ -f "$f" ] || continue
+            if grep -qE 'susfs_|CONFIG_KSU_SUSFS|CL_COPY_MNT_NS|DEFAULT_KSU_MNT' "$f"; then
+              grep -q 'linux/susfs_def.h' "$f" || insert_include "$f" "linux/susfs_def.h" || true
+              if grep -qE '\bsusfs_[a-z0-9_]+\(' "$f"; then
+                grep -q 'linux/susfs.h' "$f" || insert_include "$f" "linux/susfs.h" || true
+              fi
+            fi
+          done
 
+          # ───────────────────────── 7. Konfigurasi defconfig (tanpa duplikat/konflik) ─────────────────────────
+          CONFIG_FILE="arch/arm64/configs/${DEFCONFIG_NAME}"
+          [ -f "$CONFIG_FILE" ] || { echo "::error::defconfig tidak ada: $CONFIG_FILE"; exit 1; }
+          if [ -n "$(tail -c1 "$CONFIG_FILE")" ]; then echo >> "$CONFIG_FILE"; fi
+
+          set_cfg() {
+            sed -i -E "/^(# )?$1( is not set|=.*)\$/d" "$CONFIG_FILE"
+            printf '%s=%s\n' "$1" "$2" >> "$CONFIG_FILE"
+          }
+          SUSFS_CFGS=(
+            CONFIG_KSU_SUSFS
+            CONFIG_KSU_SUSFS_SUS_PATH
+            CONFIG_KSU_SUSFS_SUS_MOUNT
+            CONFIG_KSU_SUSFS_SUS_KSTAT
+            CONFIG_KSU_SUSFS_SPOOF_UNAME
+            CONFIG_KSU_SUSFS_ENABLE_LOG
+            CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+            CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+            CONFIG_KSU_SUSFS_OPEN_REDIRECT
+            CONFIG_KSU_SUSFS_SUS_MAP
+          )
+          for k in "${SUSFS_CFGS[@]}"; do
+            set_cfg "$k" y
+            if ! grep -rqsE --include='Kconfig*' "^config[[:space:]]+${k#CONFIG_}\b" fs kernel KernelSU drivers/kernelsu; then
+              echo "::warning::Simbol ${k#CONFIG_} tidak ditemukan di Kconfig (opsi ini akan diabaikan saat olddefconfig)"
+            fi
+          done
+          echo "✅ KSU configs added"
+
+          # ───────────────────────── 8. Kembalikan fake patch ─────────────────────────
           echo "↩️ Reverting namespace.c Fake Patch (if applicable)"
           if [ "$NS_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/blk.h' fs/namespace.c; then
             if grep -q '^#include "internal.h"$' fs/namespace.c; then
               sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
               echo "✔ Restored blk.h include"
             else
-              echo "⚠️ Anchor #include \"internal.h\" not found — could not restore blk.h include, check fs/namespace.c manually"
+              echo "::warning::Anchor #include \"internal.h\" tidak ditemukan, blk.h tidak bisa dikembalikan otomatis"
             fi
-          else
-            echo "ℹ️ Skipping blk.h restore (not fake-patched or already present)"
           fi
-
           echo "↩️ Reverting task_mmu.c Fake Patch (if applicable)"
           if [ "$MM_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/mm.h' fs/proc/task_mmu.c; then
             if grep -q '^#include <linux/pkeys.h>$' fs/proc/task_mmu.c; then
               sed -i '/^#include <linux\/pkeys.h>$/a #include <trace/hooks/mm.h>' fs/proc/task_mmu.c
               echo "✔ Restored mm.h include"
             else
-              echo "⚠️ Anchor #include <linux/pkeys.h> not found — could not restore mm.h include, check fs/proc/task_mmu.c manually"
+              echo "::warning::Anchor #include <linux/pkeys.h> tidak ditemukan, mm.h tidak bisa dikembalikan otomatis"
             fi
-          else
-            echo "ℹ️ Skipping mm.h restore (not fake-patched or already present)"
           fi
-          
-          echo "✅ KSU configs added"
-          
+
+          # ───────────────────────── 9. Verifikasi akhir ─────────────────────────
+          BAD=0
+          for f in "${PATCHED[@]}"; do
+            [ -f "$f" ] || continue
+            case "$f" in *.c|*.h) ;; *) continue ;; esac
+            n_if=$(grep -cE '^[[:space:]]*#[[:space:]]*if(def|ndef)?\b' "$f" || true)
+            n_end=$(grep -cE '^[[:space:]]*#[[:space:]]*endif\b' "$f" || true)
+            if [ "$n_if" != "$n_end" ]; then
+              echo "::error::#if/#endif tidak seimbang di $f ($n_if vs $n_end), kemungkinan hasil force hunk salah tempat"
+              BAD=1
+            fi
+          done
+
+          mapfile -t LEFT < <(find . -name '*.rej' -not -path './susfs4ksu/*' | sort)
+          if [ "${#LEFT[@]}" -gt 0 ]; then
+            BAD=1
+            for r in "${LEFT[@]}"; do
+              echo "::warning::Hunk belum terselesaikan: $r"
+              echo "--- $r ---"; cat "$r"
+            done
+          fi
+
+          {
+            echo "### SUSFS Integration"
+            echo "- SUSFS4KSU: \`$SUSFS_HEAD\`"
+            echo "- Force hunk: \`$FORCE_HUNK\`"
+            [ -f "$LOG_DIR/force.log" ] && { echo '```'; cat "$LOG_DIR/force.log"; echo '```'; }
+            echo "- Hunk tersisa: ${#LEFT[@]}"
+          } >> "$SUMMARY" || true
+
+          if [ "$BAD" = "1" ]; then
+            if [ "$SUSFS_STRICT" = "true" ]; then
+              echo "::error::Masih ada masalah SUSFS dan SUSFS_STRICT=true, build dihentikan"
+              exit 1
+            fi
+            echo "::warning::Ada masalah SUSFS tersisa, build dilanjutkan (SUSFS_STRICT=false)"
+          fi
+
           echo "🎉 SUSFS Integration setup complete!"
-          
+                  
       - name: "📝 Append custom Makefile line"
         if: github.event.inputs.toolchain_type == 'android-tools'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
