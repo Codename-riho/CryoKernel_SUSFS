@@ -212,9 +212,18 @@ jobs:
           git config --global http.lowSpeedTime 600
           
           # Clean up existing repo and common directories
-          rm -rf .repo
-          rm -rf common
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git config --global color.ui false
 
+          rm -rf .repo common
+          repo init -u https://android.googlesource.com/kernel/manifest \
+            -b common-android13-5.15 --depth=1 --no-clone-bundle --no-repo-verify
+          repo sync -c --no-tags --no-clone-bundle -j"$(nproc --all)" --force-sync
+
+          # kernel milik sendiri ada di ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+          rm -rf common
+          
           # Download updated Clang r614150 dari repositori Android Git
           CLANG_DIR="prebuilts/clang/host/linux-x86"
           CLANG_TAR="${CLANG_DIR}/clang-r614150.tar.gz"
@@ -875,6 +884,8 @@ jobs:
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           SUSFS_COMMIT: ${{ inputs.susfs_commit }}
+          SUSFS_BRANCH: gki-android13-5.15
+          SUSFS_URL: https://gitlab.com/simonpunk/susfs4ksu.git
         run: |
           echo "📦 Menyiapkan repositori SUSFS4KSU..."
           clone_susfs() {
