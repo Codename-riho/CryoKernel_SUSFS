@@ -218,7 +218,7 @@ jobs:
 
           rm -rf .repo common
           repo init -u https://android.googlesource.com/kernel/manifest \
-            -b common-android13-5.15 --depth=1 --no-clone-bundle --no-repo-verify
+          -b common-android13-5.15 --depth=1 --no-clone-bundle --no-repo-verify
           repo sync -c --no-tags --no-clone-bundle -j"$(nproc --all)" --force-sync
 
           # kernel milik sendiri ada di ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -348,16 +348,6 @@ jobs:
             args="$args CC=clang"
             echo "args=$args" >> $GITHUB_OUTPUT
 
-      - name: "📝 Append custom Makefile line"
-        if: github.event.inputs.toolchain_type == 'custom-tools'
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-         echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
-         echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
-         echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
-         echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
-         echo "Custom Makefile line added successfully"
-             
       - name: "🧩 Configure kernel & patches"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -736,7 +726,7 @@ jobs:
           case "$KSU_MANAGER" in
             BakaSU)                 REPO="Baka-SU/BakaSU";              SETUP_BRANCH=main;        DEFAULT_REF=main;            NEED_SUSFS_PATCH=0 ;;
             BakaSU-susfs)           REPO="Baka-SU/BakaSU";              SETUP_BRANCH=main;        DEFAULT_REF=sync-susfs;      NEED_SUSFS_PATCH=0 ;;
-            SukiSU-Ultra+KPM)       REPO="SukiSU-Ultra/SukiSU-Ultra";   SETUP_BRANCH=main;        DEFAULT_REF=builtin-new;     NEED_SUSFS_PATCH=0 ;;
+            SukiSU-Ultra+KPM)       REPO="SukiSU-Ultra/SukiSU-Ultra";   SETUP_BRANCH=main;        DEFAULT_REF=builtin;         NEED_SUSFS_PATCH=0 ;;
             KernelSU-Next)          REPO="KernelSU-Next/KernelSU-Next"; SETUP_BRANCH=dev;         DEFAULT_REF="";              NEED_SUSFS_PATCH=1 ;;
             KernelSU-Next-pershoot) REPO="pershoot/KernelSU-Next";      SETUP_BRANCH=dev-susfs;   DEFAULT_REF=dev-susfs;       NEED_SUSFS_PATCH=0; EXTRA_PATCH_URL="$MULTI_MANAGER_PATCH" ;;
             KernelSU-Official)      REPO="tiann/KernelSU";              SETUP_BRANCH=main;        DEFAULT_REF="";              NEED_SUSFS_PATCH=1; EXTRA_PATCH_URL="$MULTI_MANAGER_PATCH" ;;
@@ -1047,11 +1037,14 @@ jobs:
           [ "$MISSING" -eq 0 ] || echo "::warning::Ada hook SUSFS di kernel yang tidak punya pasangan di KSU, link akan gagal"
                   
       - name: "📝 Append custom Makefile line"
-        if: github.event.inputs.toolchain_type == 'android-tools'
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
+         echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
+         echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
-         
+         echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+         echo "Custom Makefile line added successfully"
+               
       - name: "✍️ Set kernel build identity"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
