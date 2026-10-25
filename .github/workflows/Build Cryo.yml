@@ -1331,6 +1331,7 @@ jobs:
           DROIDSPACES_SUPPORT: ${{ inputs.droidspaces_support || 'Enabled' }}
           GAMING_MODE: ${{ inputs.gaming_mode || '' }}
           TOOLCHAIN_TYPE: ${{ inputs.toolchain_type || 'android-tools' }}
+          CUSTOM_CLANG_REPO: ${{ inputs.customClangRepo }}
           DEVICE_NAME: "Redmi Note 12 4G"
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -1387,9 +1388,9 @@ jobs:
           if [ -n "$BT" ]; then
             BUILD_TOOLS=$(head -n1 "$BT" | tr -d '\r\n')
           elif [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
-            BUILD_TOOLS="custom-tools (Cirrus clang)"
+            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:inputs.customClangRepo})"
           else
-            BUILD_TOOLS="android-tools (clang-r547379)"
+            BUILD_TOOLS="android-tools (clang-r614150)"
           fi
           BUILD_TOOLS=$(printf '%s' "$BUILD_TOOLS" | esc)
 
@@ -1501,7 +1502,7 @@ jobs:
           if [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
             BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:inputs.customClangRepo})"
           else
-            BUILD_TOOLS="android-tools (clang-r547379)"
+            BUILD_TOOLS="android-tools (clang-r614150)"
           fi
           BUILD_TOOLS=$(printf '%s' "$BUILD_TOOLS" | esc)
 
