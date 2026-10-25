@@ -1025,15 +1025,22 @@ jobs:
         if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          set -uo pipefail
+          set +e
+          set -u
+          KSU_DIR="${KSU_DIR:-drivers/kernelsu}"
           MISSING=0
           for s in ksu_preinit_handle_post_execveat ksu_setup_preinit_file my_setprocattr my_write_context my_write_access; do
             echo "== $s"
-            echo "  dipanggil di kernel:"
-            grep -rnw --include='*.c' --include='*.h' "$s" fs security kernel include 2>/dev/null | grep -v 'include/linux/susfs' | head -3 | sed 's/^/    /'
+            CALLED=$(grep -rnw --include='*.c' --include='*.h' "$s" fs security kernel include 2>/dev/null | grep -v 'include/linux/susfs' | head -3)
             DEF=$(grep -rnw "$s" "$KSU_DIR" 2>/dev/null | head -3)
-            if [ -n "$DEF" ]; then echo "  ada di KSU:"; echo "$DEF" | sed 's/^/    /'
-            else echo "  ❌ TIDAK ADA di KSU ($KSU_DIR)"; MISSING=$((MISSING+1)); fi
+            echo "  dipanggil di kernel:"
+            if [ -n "$CALLED" ]; then echo "$CALLED" | sed 's/^/    /'; else echo "    (tidak ada)"; fi
+            if [ -n "$DEF" ]; then
+              echo "  ada di KSU:"; echo "$DEF" | sed 's/^/    /'
+            else
+              echo "  ❌ TIDAK ADA di KSU ($KSU_DIR)"
+              if [ -n "$CALLED" ]; then MISSING=$((MISSING+1)); fi
+            fi
           done
           grep -c ksu_selinux_hide_running security/selinux/hooks.c || true
           echo "Simbol hilang: $MISSING"
