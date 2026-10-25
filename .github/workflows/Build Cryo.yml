@@ -1196,52 +1196,65 @@ jobs:
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
           ls AnyKernel3/Image.*
           
-          # Create banner
+          # Create banner             
           cat > AnyKernel3/banner << 'EOF'
-          ╔═════════════════════ * ═ + ═ * ═════════════════════╗
-          ║                                                     ║
-          ║                          *                          ║
-          ║                    *     |     *                    ║
-          ║                      *   |   *                      ║
-          ║                        * | *                        ║
-          ║               * - - - - -+- - - - - *               ║
-          ║                        * | *                        ║
-          ║                      *   |   *                      ║
-          ║                    *     |     *                    ║
-          ║                          *                          ║
-          ║                                                     ║
-          ║                C R Y O   K E R N E L                ║
-          ║   -----*  Forged in the cold of Snezhnaya  *-----   ║
-          ║                    by Dyatz 685❄️                    ║
-          ║                                                     ║
-          ╠═════════════════════ * ═ + ═ * ═════════════════════╣
-          ║                                                     ║
-          ║  * CRYO AUTHORITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ║
-          ║   • Full LTO                                        ║
-          ║   • Extra TCP Congestion                            ║
-          ║   • Homemade, stock-like feel                       ║
-          ║                                                     ║
-          ║  * E.T.I.R (TOOLCHAIN) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~║
-          ║   • Cirrus clang 24.0.0 / Clang r547379             ║
-          ║                                                     ║
-          ║  * YOUR AUTHORITY (ROOT & SECURITY) ~~~~~~~~~~~~~~~ ║
-          ║   • Vanilla & BakaSU (Multi Manager Support)        ║
-          ║   • Integrated with SUSFS (GKI A13-5.15)            ║
-          ║   • Metamodule Nomount built-in Support             ║
-          ║   • Baseband-guard v1 Support                       ║
-          ║                                                     ║
-          ║  * SNOWBOUND EXTRAS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ║
-          ║   • Droidspaces Support with the note activated     ║
-          ║                                                     ║
-          ╠═════════════════════ * ═ + ═ * ═════════════════════╣
-          ║                                                     ║
-          ║  Before you defy fate, how good you are  :          ║
-          ║   • Your device is compatible                       ║
-          ║   • You have a backup of your current kernel        ║
-          ║                                                     ║
-          ║               Cold. Sharp. Unyielding.              ║
-          ║              Powered by Github Actions              ║
-          ╚═════════════════════ * ═ + ═ * ═════════════════════╝
+          +--------------------- * - + - * ---------------------+
+          |                                                     |
+          |                           __                        |
+          |                           ##                        |
+          |                          ####                       |
+          |                         ##""##                      |
+          |                        ##"  "##                     |
+          |          ___           ##_  _##           ___       |
+          |          "#########_    "####"    _#########"       |
+          |            ##_   "##_    "##"    _##"   _##         |
+          |             "##_   ##_  _ ## _  _##   _##"          |
+          |               ########__######__########            |
+          |                       _########_                    |
+          |                       "########"                    |
+          |               ########""######""########            |
+          |             _##"   ##"  " ## "  "##   "##_          |
+          |            ##"   _##"    _##_    "##_   "##         |
+          |          _#########"    _####_    "#########_       |
+          |          """           ##"  "##           """       |
+          |                        ##_  _##                     |
+          |                         ##__##                      |
+          |                          ####                       |
+          |                           ##                        |
+          |                           ""                        |
+          |                                                     |
+          |                C R Y O   K E R N E L                |
+          |   -----*  Forged in the cold of Snezhnaya  *-----   |
+          |                    by Dyatzhya❄️                    |
+          |                                                     |
+          +--------------------- * - + - * ---------------------+
+          |                                                     |
+          |  * CRYO AUTHORITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ |
+          |   • Full LTO                                        |
+          |   • Extra TCP Congestion                            |
+          |   • Homemade, stock-like feel                       |
+          |                                                     |
+          |  * E.T.I.R (TOOLCHAIN) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|
+          |   • Cirrus clang 24.0.0 / Clang r547379             |
+          |                                                     |
+          |  * YOUR AUTHORITY (ROOT & SECURITY) ~~~~~~~~~~~~~~~ |
+          |   • Vanilla & BakaSU (Multi Manager Support)        |
+          |   • Integrated with SUSFS (GKI A13-5.15)            |
+          |   • Metamodule Nomount built-in Support             |
+          |   • Baseband-guard v1 Support                       |
+          |                                                     |
+          |  * SNOWBOUND EXTRAS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ |
+          |   • Droidspaces Support with the note activated     |
+          |                                                     |
+          +--------------------- * - + - * ---------------------+
+          |                                                     |
+          |  Before you defy fate, how good you are  :          |
+          |   • Your device is compatible                       |
+          |   • You have a backup of your current kernel        |
+          |                                                     |
+          |               Cold. Sharp. Unyielding.              |
+          |              Powered by Github Actions              |
+          +--------------------- * - + - * ---------------------+
           Installing Cryo Kernel...
           EOF
           
