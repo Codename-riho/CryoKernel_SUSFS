@@ -874,9 +874,31 @@ jobs:
         if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          # Clone SUSFS4KSU for kernel patches only (not KSU integration)
-          echo "📦 Cloning SUSFS4KSU for kernel patches..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
+          echo "📦 Menyiapkan repositori SUSFS4KSU..."
+          clone_susfs() {
+            local i
+            for i in 1 2 3; do
+              rm -rf susfs4ksu
+              if [ -n "${SUSFS_COMMIT:-}" ]; then
+                echo "Menerapkan SUSFS4KSU pada commit spesifik: $SUSFS_COMMIT"
+                if git clone -q -b "$SUSFS_BRANCH" "$SUSFS_URL" susfs4ksu \
+                   && git -C susfs4ksu checkout -q "$SUSFS_COMMIT"; then
+                  return 0
+                fi
+              else
+                echo "Input commit kosong, mengambil versi terbaru (latest)..."
+                if git clone -q --depth=1 -b "$SUSFS_BRANCH" "$SUSFS_URL" susfs4ksu; then
+                  return 0
+                fi
+              fi
+              echo "⚠️ Clone SUSFS4KSU gagal ($i/3)"
+              sleep $((i * 5))
+            done
+            return 1
+          }
+          clone_susfs || { echo "::error::Gagal clone/checkout SUSFS4KSU"; exit 1; }
+          SUSFS_HEAD=$(git -C susfs4ksu rev-parse --short HEAD)
+          echo "SUSFS4KSU @ $SUSFS_HEAD"
 
           echo "☣️ Applying namespace.c Fake Patch (if applicable)"
           if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
