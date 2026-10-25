@@ -934,6 +934,15 @@ jobs:
           else
             echo "ℹ️ task_mmu.c: fake patch dilewati"
           fi
+
+          # ... Test susfs integration...
+
+          echo "ℹ️ Kernel: $(grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL)' Makefile | tr -d ' ' | cut -d= -f2 | paste -sd.)"
+          echo "🧪 Dry-run SUSFS kernel patch..."
+          patch -p1 --dry-run < "$SUSFS_KERNEL_PATCH" || echo "⚠️ Dry-run: ada hunk yang gagal"
+
+          echo "🔧 Applying SUSFS kernel patch..."
+          if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
           
           echo "💉 Applying SUSFS kernel patch..."
           if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
