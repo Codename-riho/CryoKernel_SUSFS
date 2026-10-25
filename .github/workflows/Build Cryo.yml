@@ -348,6 +348,16 @@ jobs:
             args="$args CC=clang"
             echo "args=$args" >> $GITHUB_OUTPUT
 
+      - name: "📝 Append custom Makefile line"
+        if: github.event.inputs.toolchain_type == 'custom-tools'
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+         echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
+         echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
+         echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
+         echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+         echo "Custom Makefile line added successfully"
+
       - name: "🧩 Configure kernel & patches"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -1037,13 +1047,10 @@ jobs:
           [ "$MISSING" -eq 0 ] || echo "::warning::Ada hook SUSFS di kernel yang tidak punya pasangan di KSU, link akan gagal"
                   
       - name: "📝 Append custom Makefile line"
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        if: github.event.inputs.toolchain_type == 'android-tools'
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-         echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
-         echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
-         echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
-         echo "Custom Makefile line added successfully"
                
       - name: "✍️ Set kernel build identity"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
