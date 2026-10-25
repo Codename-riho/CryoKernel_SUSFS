@@ -1,4 +1,4 @@
-name: "Build Cryo Kernel"
+name: "Build Cryo Ext"
 env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
