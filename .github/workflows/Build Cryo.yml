@@ -939,7 +939,7 @@ jobs:
           echo "🧪 Dry-run SUSFS kernel patch..."
           patch -p1 --dry-run < "$SUSFS_KERNEL_PATCH" || echo "⚠️ Dry-run: ada hunk yang gagal"
 
-          echo "🔧 Applying SUSFS kernel patch..."
+          echo "💉 Applying SUSFS kernel patch..."
           if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
             echo "✅ SUSFS patch successfully applied"
           else
