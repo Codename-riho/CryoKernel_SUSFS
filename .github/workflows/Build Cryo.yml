@@ -913,37 +913,39 @@ jobs:
           SUSFS_HEAD=$(git -C susfs4ksu rev-parse --short HEAD)
           echo "SUSFS4KSU @ $SUSFS_HEAD"
 
-          echo "☣️ Applying namespace.c Fake Patch (if applicable)"
-          if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
+          SUSFS_KERNEL_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
+
+          echo "👾 Applying namespace.c Fake Patch (if applicable)"
+          NS_FAKE_PATCHED=0
+          if ! grep -q '^ #include <trace/hooks/blk.h>$' "$SUSFS_KERNEL_PATCH" \
+             && grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
             sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
             NS_FAKE_PATCHED=1
           else
-            echo "ℹ️ blk.h include not present in fs/namespace.c — skipping fake patch"
-            NS_FAKE_PATCHED=0
+            echo "ℹ️ namespace.c: fake patch dilewati"
           fi
 
-          echo "☣️ Applying task_mmu.c Fake Patch (if applicable)"
-          if grep -q '^#include <trace/hooks/mm.h>$' fs/proc/task_mmu.c; then
+          echo "👾 Applying task_mmu.c Fake Patch (if applicable)"
+          MM_FAKE_PATCHED=0
+          if ! grep -q '^ #include <trace/hooks/mm.h>$' "$SUSFS_KERNEL_PATCH" \
+             && grep -q '^#include <trace/hooks/mm.h>$' fs/proc/task_mmu.c; then
             sed -i '/^#include <trace\/hooks\/mm.h>$/d' fs/proc/task_mmu.c
             MM_FAKE_PATCHED=1
           else
-            echo "ℹ️ mm.h include not present in fs/proc/task_mmu.c — skipping fake patch"
-            MM_FAKE_PATCHED=0
+            echo "ℹ️ task_mmu.c: fake patch dilewati"
           fi
           
-          SUSFS_KERNEL_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          
-          echo "🔧 Applying SUSFS kernel patch..."
+          echo "💉 Applying SUSFS kernel patch..."
           if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
             echo "✅ SUSFS patch successfully applied"
           else
             echo "⚠️ SUSFS patch failed — copying files manually"
           fi
 
-          echo "🔧 Applying SUSFS -> KernelSU patch..."
+          echo "💉 Applying SUSFS -> KernelSU patch..."
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           
-          echo "📄 Forcing SUSFS source injection..."
+          echo "🏹 Forcing SUSFS source injection..."
           
           # Always replace fs/susfs.c
           mkdir -p fs
