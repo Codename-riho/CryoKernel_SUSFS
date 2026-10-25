@@ -132,14 +132,14 @@ jobs:
           sudo docker image prune --all --force
           sudo docker builder prune -a -f
 
-          echo "Membuat dan mengaktifkan file SWAP sebesar 24GB..."
-          # Membuat file kosong sebesar 24 Gigabyte (kamu bisa mengubah '24G' sesuai kebutuhan)
-          sudo fallocate -l 24G /swapfile
-          # Mengatur izin akses file agar hanya sistem root yang bisa membaca/menulisnya demi keamanan
+          echo "Membuat file SWAP sebesar 24GB menggunakan 'dd' (Metode Aman)..."
+          # Menggunakan 'dd' membaca data kosong dari /dev/zero dan menulisnya ke /swapfile
+          # bs=1G (ukuran blok 1 Gigabyte), count=24 (diulang 24 kali = 24GB)
+          sudo dd if=/dev/zero of=/swapfile bs=1G count=24 status=progress
+          
+          echo "Mengatur izin dan mengaktifkan SWAP..."
           sudo chmod 600 /swapfile
-          # Mengubah format file kosong tersebut menjadi area Swap
           sudo mkswap /swapfile
-          # Menyalakan Swap agar RAM sistem virtual bertambah
           sudo swapon /swapfile
           
           echo "Pembersihan dan pengaturan SWAP selesai!"
