@@ -374,13 +374,16 @@ jobs:
           DS_STAT_SEC: 10          
           DS_DIRTY_WB_CS: 3000     
           DS_DIRTY_EXP_CS: 3000    
-          DS_LAPTOP_MODE: 1        
+          DS_LAPTOP_MODE: 1
+          DS_VFS_CACHE: 50           # Default 100. Diturunkan agar file cache tetap di RAM
+          DS_DIRTY_BG_RATIO: 20      # Default 5-10. Kapasitas RAM kotor sebelum disk bangun (20%)
+          DS_DIRTY_RATIO: 40         # Default 20. Batas maksimal sebelum proses I/O diblokir (40%)
         run: |
           set -euo pipefail
           
           echo "::group::🛠️ Setup & Validation Deep Sleep Module"
-          # 1. Validasi Input
-          for v in DS_DELAY_SEC DS_STAT_SEC DS_DIRTY_WB_CS DS_DIRTY_EXP_CS DS_LAPTOP_MODE; do
+          # 1. Validasi Input (Termasuk parameter baru)
+          for v in DS_DELAY_SEC DS_STAT_SEC DS_DIRTY_WB_CS DS_DIRTY_EXP_CS DS_LAPTOP_MODE DS_VFS_CACHE DS_DIRTY_BG_RATIO DS_DIRTY_RATIO; do
             case "${!v}" in ''|*[!0-9]*|0) 
               if [ "$v" != "DS_LAPTOP_MODE" ]; then
                 echo "::error::Variabel $v harus angka > 0 (nilai saat ini: '${!v}')"; exit 1 
@@ -391,23 +394,26 @@ jobs:
           [ -d kernel/power ] || { echo "::error::Direktori kernel/power tidak ditemukan!"; exit 1; }
           [ -f kernel/power/Makefile ] || { echo "::error::kernel/power/Makefile tidak ada!"; exit 1; }
 
-          # 2. Failsafe Feature Detection (Mendeteksi dukungan fitur via Headers & Source)
+          # 2. Failsafe Feature Detection (Deteksi simbol baru)
           HAS_STAT=$(grep -qE 'sysctl_stat_interval' include/linux/vmstat.h mm/vmstat.c 2>/dev/null && echo 1 || echo 0)
           HAS_WB=$(grep -qE 'dirty_writeback_interval' include/linux/writeback.h 2>/dev/null && echo 1 || echo 0)
           HAS_EXP=$(grep -qE 'dirty_expire_interval' include/linux/writeback.h 2>/dev/null && echo 1 || echo 0)
           HAS_LAPTOP=$(grep -qE 'laptop_mode' include/linux/swap.h 2>/dev/null && echo 1 || echo 0)
           
-          echo "Ketersediaan Simbol -> stat: $HAS_STAT | wb: $HAS_WB | exp: $HAS_EXP | laptop: $HAS_LAPTOP"
+          HAS_VFS=$(grep -qE 'sysctl_vfs_cache_pressure' fs/dcache.c include/linux/dcache.h 2>/dev/null && echo 1 || echo 0)
+          HAS_BG_RATIO=$(grep -qE 'vm_dirty_background_ratio' mm/page-writeback.c include/linux/writeback.h 2>/dev/null && echo 1 || echo 0)
+          HAS_RATIO=$(grep -qE 'vm_dirty_ratio' mm/page-writeback.c include/linux/writeback.h 2>/dev/null && echo 1 || echo 0)
           
-          if [ $((HAS_STAT + HAS_WB + HAS_EXP + HAS_LAPTOP)) -eq 0 ]; then
-            echo "::warning::Tidak ada fitur VM yang kompatibel di kernel tree ini. Injeksi dibatalkan agar aman."
+          echo "Simbol Baru -> vfs: $HAS_VFS | bg_ratio: $HAS_BG_RATIO | ratio: $HAS_RATIO"
+          
+          if [ $((HAS_STAT + HAS_WB + HAS_VFS + HAS_BG_RATIO)) -eq 0 ]; then
+            echo "::warning::Tidak ada fitur VM yang kompatibel di kernel tree ini."
             echo "::endgroup::"
             exit 0
           fi
 
-          # 3. Generate Header Konfigurasi Dinamis (Menghindari penggunaan 'sed' yang berisiko pada file C)
+          # 3. Generate Header Konfigurasi Dinamis
           cat > kernel/power/cryo_deepsleep_conf.h << EOF
-          /* Auto-generated configuration for Cryo Deep Sleep */
           #ifndef CRYO_DEEPSLEEP_CONF_H
           #define CRYO_DEEPSLEEP_CONF_H
 
@@ -416,24 +422,24 @@ jobs:
           #define CRYO_DIRTY_WB_CS  ${DS_DIRTY_WB_CS}
           #define CRYO_DIRTY_EXP_CS ${DS_DIRTY_EXP_CS}
           #define CRYO_LAPTOP_MODE  ${DS_LAPTOP_MODE}
+          #define CRYO_VFS_CACHE    ${DS_VFS_CACHE}
+          #define CRYO_BG_RATIO     ${DS_DIRTY_BG_RATIO}
+          #define CRYO_RATIO        ${DS_DIRTY_RATIO}
 
           #define CRYO_HAS_STAT     ${HAS_STAT}
           #define CRYO_HAS_WB       ${HAS_WB}
           #define CRYO_HAS_EXP      ${HAS_EXP}
           #define CRYO_HAS_LAPTOP   ${HAS_LAPTOP}
+          #define CRYO_HAS_VFS      ${HAS_VFS}
+          #define CRYO_HAS_BG_RATIO ${HAS_BG_RATIO}
+          #define CRYO_HAS_RATIO    ${HAS_RATIO}
 
-          #endif /* CRYO_DEEPSLEEP_CONF_H */
+          #endif
           EOF
 
-          # 4. Generate Source Code Inti (Gunakan 'EOF' string kuat agar bash tidak mengeksekusi variabel internal C)
+          # 4. Generate Source Code Inti
           cat > kernel/power/cryo_deepsleep.c << 'EOF'
           // SPDX-License-Identifier: GPL-2.0-only
-          /*
-           * Cryo Deep Sleep Injector
-           * Safely tunes VM parameters post-boot to maximize idle deep sleep.
-           * Does not touch suspend/resume IRQ paths (Zero wake-up latency).
-           */
-           
           #define pr_fmt(fmt) "cryo_deepsleep: " fmt
 
           #include <linux/init.h>
@@ -442,12 +448,24 @@ jobs:
           #include <linux/workqueue.h>
           #include <linux/writeback.h>
           #include <linux/swap.h>
+          #include <linux/dcache.h>
           
-          /* Include generated configs */
           #include "cryo_deepsleep_conf.h"
 
           #if CRYO_HAS_STAT
           extern int sysctl_stat_interval;
+          #endif
+          
+          #if CRYO_HAS_VFS
+          extern int sysctl_vfs_cache_pressure;
+          #endif
+          
+          #if CRYO_HAS_BG_RATIO
+          extern int vm_dirty_background_ratio;
+          #endif
+
+          #if CRYO_HAS_RATIO
+          extern int vm_dirty_ratio;
           #endif
 
           static void cryo_deepsleep_apply(struct work_struct *work)
@@ -468,22 +486,32 @@ jobs:
           	laptop_mode = CRYO_LAPTOP_MODE;
           #endif
 
-          	pr_info("VM Tunables Injected Safely (Delayed Overwrite Successful).\n");
+          #if CRYO_HAS_VFS
+          	sysctl_vfs_cache_pressure = CRYO_VFS_CACHE;
+          #endif
+          
+          #if CRYO_HAS_BG_RATIO
+          	vm_dirty_background_ratio = CRYO_BG_RATIO;
+          #endif
+          
+          #if CRYO_HAS_RATIO
+          	vm_dirty_ratio = CRYO_RATIO;
+          #endif
+
+          	pr_info("Ultra Deep Sleep Tunables Injected Successfully.\n");
           }
           
           static DECLARE_DELAYED_WORK(cryo_deepsleep_work, cryo_deepsleep_apply);
 
           static int __init cryo_deepsleep_init(void)
           {
-          	pr_info("Scheduling deep sleep injection in %d seconds...\n", CRYO_DELAY_SEC);
           	schedule_delayed_work(&cryo_deepsleep_work, CRYO_DELAY_SEC * HZ);
           	return 0;
           }
-          
           late_initcall(cryo_deepsleep_init);
           EOF
           
-          # 5. Pasang ke sistem Build Kernel (Makefile)
+          # 5. Pasang ke sistem Build Kernel
           if ! grep -q 'cryo_deepsleep.o' kernel/power/Makefile; then
             echo -e "\n# Cryo Deep Sleep Module\nobj-y += cryo_deepsleep.o" >> kernel/power/Makefile
           fi
@@ -491,12 +519,12 @@ jobs:
           echo "::endgroup::"
           
           # 6. Final Report
-          echo "✅ Modul cryo_deepsleep terpasang secara native!"
-          echo "   • Writeback Centisecs : $([ $HAS_WB = 1 ] && echo "${DS_DIRTY_WB_CS}cs" || echo "Not Supported")"
-          echo "   • Expire Centisecs    : $([ $HAS_EXP = 1 ] && echo "${DS_DIRTY_EXP_CS}cs" || echo "Not Supported")"
-          echo "   • Laptop Mode I/O     : $([ $HAS_LAPTOP = 1 ] && echo "Enabled" || echo "Not Supported")"
-          echo "   • Execution Delay     : ${DS_DELAY_SEC} seconds (bypassing init.rc)"
-          
+          echo "✅ Modul cryo_deepsleep (Ultra) terpasang!"
+          echo "   • Writeback CS  : $([ $HAS_WB = 1 ] && echo "${DS_DIRTY_WB_CS}cs" || echo "Skip")"
+          echo "   • VFS Cache     : $([ $HAS_VFS = 1 ] && echo "${DS_VFS_CACHE}%" || echo "Skip")"
+          echo "   • Dirty BG Ratio: $([ $HAS_BG_RATIO = 1 ] && echo "${DS_DIRTY_BG_RATIO}%" || echo "Skip")"
+          echo "   • Dirty Ratio   : $([ $HAS_RATIO = 1 ] && echo "${DS_DIRTY_RATIO}%" || echo "Skip")"
+                   
       - name: "🧩 Configure kernel & patches"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
