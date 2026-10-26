@@ -23,7 +23,7 @@ on:
           - KernelSU-Next 
           - KernelSU-Official
           - Rissu-KSU 
-        default: "BakaSU-susfs"
+        default: "BakaSU"
       ksu_ref:
         description: "Opsional: branch/tag manager (kosong = bawaan tiap manager)"
         required: false
@@ -1156,6 +1156,8 @@ jobs:
       - name: "👍 Make defconfig"
         if: github.event.inputs.toolchain_type == 'custom-tools'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
         run: |
           set -euo pipefail
           clang --version | head -n1
