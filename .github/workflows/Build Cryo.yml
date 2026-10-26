@@ -594,51 +594,52 @@ jobs:
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
-      - name: "🚄 Apply BBRv3 (WildKernels GKI Port)"
+      - name: "🚄 Porting BBRv3 (via Cherry-Pick)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -euo pipefail
           
-          echo "::group::📥 Mengunduh Port BBRv3 (WildKernels)"
-          # Kloning repo patch WildKernels secara dangkal (depth 1) agar super cepat
-          git clone --depth 1 https://github.com/WildKernels/kernel_patches.git /tmp/kernel_patches
-          
-          # Mencari letak file patch BBRv3 secara dinamis di dalam folder
-          BBR_PATCH=$(find /tmp/kernel_patches -type f -name "*bbrv3*.patch" -o -name "*bbr3*.patch" | head -n 1)
-          
-          if [ -n "$BBR_PATCH" ] && [ -f "$BBR_PATCH" ]; then
-            echo "Patch BBRv3 ditemukan di: $BBR_PATCH"
-            cp "$BBR_PATCH" /tmp/bbr3.patch
-          else
-            echo "::warning::Patch BBRv3 tidak ditemukan di repositori WildKernels!"
-            touch /tmp/bbr3.patch # Buat file kosong agar git apply check langsung gagal dan memicu mode Fallback
+          if [[ "${KERNEL_BRANCH}" != *"android13-5.15"* ]]; then
+            echo "::notice::Branch bukan android13-5.15. Lewati porting BBRv3."
+            scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" -e CONFIG_TCP_CONG_BBR -e CONFIG_DEFAULT_BBR --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
+            exit 0
           fi
+
+          echo "::group::🔄 Menyiapkan Git untuk Porting"
+          git config --global user.email "bot@github.com"
+          git config --global user.name "GitHub Actions"
           echo "::endgroup::"
 
-          OPTS="--exclude=arch/arm64/configs/unified_defconfig --ignore-whitespace --whitespace=nowarn"
-          
-          # Uji coba kecocokan patch BBRv3 GKI
-          if git apply --check $OPTS /tmp/bbr3.patch >/tmp/bbr3_patch_check.log 2>&1; then
-            echo "::group::⚙️ Memasang Patch BBRv3"
-            git apply -v $OPTS /tmp/bbr3.patch
-            echo "::endgroup::"
+          echo "::group::📥 Mengambil BBRv3 dari Repositori GKI 5.15 Pihak Ketiga"
+          # Kita menambahkan repo custom kernel lain yang sudah stabil dengan BBRv3 di 5.15
+          # (Contoh: Repo kernel umum atau repo milik topnotchfreaks)
+          git remote add port_source https://github.com/topnotchfreaks/kernel_msm-5.15.git || true
+          git fetch port_source --no-tags --depth=50
+          echo "::endgroup::"
 
-            # Modifikasi Config agar menggunakan BBR3 sebagai default
+          echo "::group::⚙️ Melakukan Cherry-Pick BBRv3"
+          # Menggunakan SHA dari commit BBRv3 yang sudah kamu ketahui
+          BBR3_SHA="7bc9793d909f52f4a6cd45dd1381b2f200c18a7c"
+          
+          # Coba cherry-pick. Jika ada konflik kecil, Git akan mencoba menyelesaikannya secara pintar
+          if git cherry-pick -X theirs "$BBR3_SHA"; then
+            echo "✅ Cherry-pick BBRv3 berhasil tanpa konflik berarti!"
+            
+            # Verifikasi file
+            for f in net/ipv4/tcp_bbr3.c net/ipv4/tcp_plb.c; do
+              [ -f "$f" ] || { echo "::error::File $f tidak ada!"; exit 1; }
+            done
+            
             scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" \
               -e CONFIG_TCP_CONG_BBR3 \
               -e CONFIG_DEFAULT_BBR3 \
               --set-str CONFIG_DEFAULT_TCP_CONG "bbr3"
-
-            echo "✅ BBRv3 berhasil terpasang dari port WildKernels!"
-          
+              
           else
-            echo "::warning::Patch BBRv3 tidak kompatibel dengan ${KERNEL_BRANCH}; melewati patch dan memakai BBR v1 bawaan kernel."
+            echo "::warning::Cherry-pick BBRv3 gagal karena konflik terlalu besar. Membatalkan porting."
+            git cherry-pick --abort
             
-            echo "::group::⚠️ Log Kegagalan Patch"
-            sed -n '1,80p' /tmp/bbr3_patch_check.log || true
-            echo "::endgroup::"
-
-            echo "::group::🛠️ Konfigurasi Fallback Defconfig"
+            echo "::group::🛠️ Konfigurasi Fallback BBR v1"
             scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" \
               -d CONFIG_TCP_CONG_BBR3 \
               -d CONFIG_DEFAULT_BBR3 \
@@ -646,10 +647,9 @@ jobs:
               -e CONFIG_DEFAULT_BBR \
               --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
             echo "::endgroup::"
-
-            echo "✅ Fallback BBR v1 aktif; build dilanjutkan tanpa BBRv3."
           fi
-                         
+          echo "::endgroup::"
+          
       - name: "🏷️ Force short localversion"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
