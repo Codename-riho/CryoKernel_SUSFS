@@ -1416,7 +1416,7 @@ jobs:
                                   
       - name: "🚨 Kumpulkan Log Error (Jika Gagal)"
         if: failure()
-        uses: actions/upload-artifact@v8
+        uses: actions/upload-artifact@v7
         with:
           name: error-logs-${{ matrix.kernel.name }}
           path: |
