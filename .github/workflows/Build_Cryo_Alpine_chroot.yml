@@ -1221,24 +1221,37 @@ jobs:
 
           echo "✅ CPU Governor berhasil disetel ke 'walt' pada file $DEFCONFIG_NAME!"
 
-      - name: "🛡️ Cek kompatibilitas toolchain (Alpine/musl)"
-        shell: sh
+      - name: "🧱 Rootfs glibc untuk binary AOSP"
+        if: github.event.inputs.toolchain_type == 'android-tools'
         run: |
-          if [ "${{ github.event.inputs.toolchain_type }}" = "android-tools" ]; then
-            echo "::error::android-tools memakai binary prebuilt AOSP berbasis glibc (pahole, m4, clang) yang tidak bisa jalan di Alpine (musl). Jalankan ulang dengan toolchain_type=custom-tools."
-            exit 1
-          fi
-          echo "✅ toolchain_type=${{ github.event.inputs.toolchain_type }} (kompatibel dengan Alpine)"
+          set -eu
+          R=/opt/glibc-root
+          apk add --no-cache debootstrap perl gnupg xz
+          debootstrap --arch=amd64 --variant=minbase --no-check-gpg \
+            --include=ca-certificates,git,curl,xz-utils,bc,bison,flex,cpio,rsync,perl,python3,make,gcc,libc6-dev,libssl-dev,libelf-dev,dwarves,libxml2 \
+            trixie "$R" http://deb.debian.org/debian
+          mount -t proc proc "$R/proc"
+          mount --rbind /sys "$R/sys"
+          mount --rbind /dev "$R/dev"
+          mkdir -p "$R$GITHUB_WORKSPACE"
+          mount --bind "$GITHUB_WORKSPACE" "$R$GITHUB_WORKSPACE"
+          cp /etc/resolv.conf "$R/etc/resolv.conf"
+          cat > /usr/local/bin/gx <<'WRAP'
+          #!/bin/sh
+          exec chroot /opt/glibc-root /usr/bin/env LANG=C.UTF-8 /bin/sh -c 'cd "$1" && shift && exec "$@"' gx "$PWD" "$@"
+          WRAP
+          chmod +x /usr/local/bin/gx
+          gx sh -c 'ldd --version | head -n1'
           
       - name: "🔨 Build kernel"
         if: github.event.inputs.toolchain_type == 'android-tools'
-        working-directory: ${{ env.WORK_DIR }}    
+        working-directory: ${{ env.WORK_DIR }}
         run: |
           set -o pipefail
-          
+
           LTO=full \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
-          build/build.sh -j$(nproc --all) 2>&1 | tee build_full.log
+          gx build/build.sh -j$(nproc --all) 2>&1 | tee build_full.log
 
       - name: "👍 Make defconfig"
         if: github.event.inputs.toolchain_type == 'custom-tools'
