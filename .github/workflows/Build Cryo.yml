@@ -1166,7 +1166,7 @@ jobs:
           scripts/config --file out/.config -d LTO_CLANG_THIN -e LTO_CLANG_FULL
           make ARCH=arm64 LLVM=1 O=out olddefconfig
           # Pastikan config penting tidak hilang setelah resolusi dependensi
-          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_KPROFILES CONFIG_TCP_CONG_BBR3 CONFIG_FB"
+          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 ZRAM_DEF_COMP_LZ4 CONFIG_KERNEL_LZ4"
           [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
 
           {
