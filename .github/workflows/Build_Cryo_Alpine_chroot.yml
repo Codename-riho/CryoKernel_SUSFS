@@ -1,4 +1,4 @@
-name: "Build Cryo Kernel"
+name: "Build Cryo Kernel Alpine Chroot"
 
 env:
   OUT_DIR: "out"
