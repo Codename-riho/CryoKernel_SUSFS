@@ -1087,7 +1087,7 @@ jobs:
         env:
           SUSFS_COMMIT: ${{ inputs.susfs_commit }}
           SUSFS_BRANCH: gki-android13-5.15
-          SUSFS_URL: https://gitlab.com/simonpunk/susfs4ksu.git
+          SUSFS_URL: https://github.com/Codename-riho/Kernel_builder.git
         run: |
           echo "📦 Menyiapkan repositori SUSFS4KSU..."
           clone_susfs() {
