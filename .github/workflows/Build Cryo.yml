@@ -75,7 +75,7 @@ on:
 jobs:
   build-kernels:
     name: "❄️ Build Cryo ${{ matrix.kernel.name }} kernel"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26
     strategy:
       fail-fast: false
       matrix:
@@ -1268,7 +1268,7 @@ jobs:
                
   package-kernels:
     name: "📦 Package Kernels"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26
     needs: [build-kernels]
     permissions:
       contents: write
