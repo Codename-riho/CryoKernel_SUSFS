@@ -436,12 +436,12 @@ jobs:
           curl -fsSL --retry 3 -o /tmp/bbr3.patch \
             "https://github.com/topnotchfreaks/kernel_msm-5.15/commit/${BBR3_SHA}.patch"
 
-          EXCL="--exclude=arch/arm64/configs/unified_defconfig"
-          if ! git apply --check $EXCL /tmp/bbr3.patch; then
+          OPTS="--exclude=arch/arm64/configs/unified_defconfig --ignore-whitespace --whitespace=nowarn"
+          if ! git apply --check $OPTS /tmp/bbr3.patch; then
             echo "::error::Patch BBRv3 tidak cocok dengan ${KERNEL_BRANCH} (lihat hunk yang gagal di atas)"
             exit 1
           fi
-          git apply -v $EXCL /tmp/bbr3.patch
+          git apply -v $OPTS /tmp/bbr3.patch
 
           for f in net/ipv4/tcp_bbr3.c net/ipv4/tcp_plb.c; do
             [ -f "$f" ] || { echo "::error::$f tidak terbentuk"; exit 1; }
@@ -934,11 +934,32 @@ jobs:
           else
             echo "ℹ️ task_mmu.c: fake patch dilewati"
           fi
+           
+          KVER=$(awk '/^(VERSION|PATCHLEVEL|SUBLEVEL) =/{print $3}' Makefile | head -3 | paste -sd.)
+          echo "🧪 Dry-run SUSFS kernel patch terhadap kernel ${KVER}..."
 
+          DRY_LOG=$(patch -p1 --dry-run < "$SUSFS_KERNEL_PATCH" 2>&1) && DRY_RC=0 || DRY_RC=$?
+          echo "$DRY_LOG"
+
+          N_FILES=$(echo "$DRY_LOG" | grep -c '^checking file' || true)
+          N_OFFSET=$(echo "$DRY_LOG" | grep -c 'offset' || true)
+          N_FUZZ=$(echo "$DRY_LOG" | grep -c 'fuzz' || true)
+          N_FAIL=$(echo "$DRY_LOG" | grep -c 'FAILED' || true)
+
+          echo "──────── Hasil kecocokan SUSFS ────────"
+          echo "Kernel : ${KVER}"
+          echo "File   : ${N_FILES} dicek | offset: ${N_OFFSET} | fuzz: ${N_FUZZ} | gagal: ${N_FAIL}"
+
+          if [ "$DRY_RC" = "0" ]; then
+            echo "✅ SUSFS COCOK dengan kernel ${KVER}"
+            echo "::notice::SUSFS cocok dengan kernel ${KVER} (offset=${N_OFFSET}, fuzz=${N_FUZZ})"
+          else
+            echo "❌ SUSFS TIDAK COCOK dengan kernel ${KVER}. File yang bermasalah:"
+            echo "$DRY_LOG" | awk '/^checking file/{f=$3} /FAILED/{print "   - " f ": " $0}'
+            echo "::warning::SUSFS tidak cocok dengan kernel ${KVER} (${N_FAIL} hunk gagal)"
+          fi
+          echo "───────────────────────────────────────"
           
-          echo "🧪 Dry-run SUSFS kernel patch..."
-          patch -p1 --dry-run < "$SUSFS_KERNEL_PATCH" || echo "⚠️ Dry-run: ada hunk yang gagal"
-
           echo "💉 Applying SUSFS kernel patch..."
           if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
             echo "✅ SUSFS patch successfully applied"
