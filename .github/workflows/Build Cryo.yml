@@ -414,13 +414,12 @@ jobs:
             -e CONFIG_LRU_GEN \
             -e CONFIG_LRU_GEN_ENABLED \
             -e CONFIG_CRYPTO_LZ4 \
-            -e CONFIG_KERNEL_LZ4 \
-            -e ZRAM_DEF_COMP_LZ4 \
-            --set-str CONFIG_ZRAM_DEF_COMP "lz4" \
-            -d CONFIG_KERNEL_GZIP \
-            -d CONFIG_KERNEL_LZO \
-            -d CONFIG_KERNEL_XZ \
-            -d CONFIG_KERNEL_ZSTD \
+            -e CONFIG_ZRAM_DEF_COMP_LZ4 \
+            -d CONFIG_ZRAM_DEF_COMP_LZORLE \
+            -d CONFIG_ZRAM_DEF_COMP_LZO \
+            -d CONFIG_ZRAM_DEF_COMP_ZSTD \
+            -d CONFIG_ZRAM_DEF_COMP_LZ4HC \
+            -d CONFIG_ZRAM_DEF_COMP_842 \
             -d CONFIG_KERNEL_BZIP2 \
             -d CONFIG_KERNEL_UNCOMPRESSED \
             -d CONFIG_KPROFILES
@@ -1166,7 +1165,7 @@ jobs:
           scripts/config --file out/.config -d LTO_CLANG_THIN -e LTO_CLANG_FULL
           make ARCH=arm64 LLVM=1 O=out olddefconfig
           # Pastikan config penting tidak hilang setelah resolusi dependensi
-          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 ZRAM_DEF_COMP_LZ4 CONFIG_KERNEL_LZ4"
+          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3"
           [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
 
           {
@@ -1178,9 +1177,15 @@ jobs:
                 echo "- ⚠️ \`$c\` TIDAK aktif"
                 echo "::warning::$c tidak aktif di .config akhir"
               fi
+
+                 echo "== ZRAM/LZ4 di .config"
+                 grep -nE "CONFIG_ZRAM($|_DEF)|CONFIG_CRYPTO_LZ4|CONFIG_KERNEL_" out/.config
+                 echo "== Kconfig zram"
+                 grep -n -B1 -A3 "ZRAM_DEF_COMP_LZ4" drivers/block/zram/Kconfig
+           
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          
+                 
       - name: "🎶 Build kernel"
         if: github.event.inputs.toolchain_type == 'custom-tools'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
