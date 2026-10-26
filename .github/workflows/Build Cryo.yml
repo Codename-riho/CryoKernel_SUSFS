@@ -1164,27 +1164,40 @@ jobs:
           # samakan dengan jalur build.sh (LTO=full)
           scripts/config --file out/.config -d LTO_CLANG_THIN -e LTO_CLANG_FULL
           make ARCH=arm64 LLVM=1 O=out olddefconfig
+          
           # Pastikan config penting tidak hilang setelah resolusi dependensi
-          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3"
-          [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
+          CHECK_LIST="CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 CONFIG_ZRAM_DEF_COMP_LZ4"
+          if [ "${{ matrix.kernel.enable_ksu }}" = "true" ]; then
+            CHECK_LIST="$CHECK_LIST CONFIG_KSU"
+            [ "${KSU_MANAGER:-}" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
+          fi
+
+          # Baca .config sekali saja: daftar semua opsi yang bernilai =y
+          ENABLED=" $({ grep -E '^CONFIG_[A-Za-z0-9_]+=y$' out/.config || true; } | cut -d= -f1 | tr '\n' ' ') "
 
           {
             echo "### Cek .config akhir"
             for c in $CHECK_LIST; do
-              if grep -q "^${c}=y" out/.config; then
-                echo "- ✅ \`$c=y\`"
-              else
-                echo "- ⚠️ \`$c\` TIDAK aktif"
-                echo "::warning::$c tidak aktif di .config akhir"
-              fi
-
-                 echo "== ZRAM/LZ4 di .config"
-                 grep -nE "CONFIG_ZRAM($|_DEF)|CONFIG_CRYPTO_LZ4|CONFIG_KERNEL_" out/.config
-                 echo "== Kconfig zram"
-                 grep -n -B1 -A3 "ZRAM_DEF_COMP_LZ4" drivers/block/zram/Kconfig
-           
+              case "$ENABLED" in
+                *" $c "*) echo "- ✅ \`$c=y\`" ;;
+                *) echo "- ⚠️ \`$c\` TIDAK aktif"
+                   echo "::warning::$c tidak aktif di .config akhir" ;;
+              esac
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Diagnosa ZRAM/LZ4: hanya dicetak kalau LZ4 tidak aktif
+          case "$ENABLED" in
+            *" CONFIG_ZRAM_DEF_COMP_LZ4 "*) ;;
+            *)
+              echo "::group::Diagnosa ZRAM/LZ4"
+              echo "== ZRAM/LZ4 di .config"
+              grep -nE 'CONFIG_ZRAM([= ]|_DEF)|CONFIG_CRYPTO_LZ4' out/.config || echo "(tidak ada entri ZRAM/LZ4 sama sekali)"
+              echo "== Kconfig zram"
+              grep -n -B1 -A3 'ZRAM_DEF_COMP_LZ4' drivers/block/zram/Kconfig 2>/dev/null || echo "(ZRAM_DEF_COMP_LZ4 tidak ada di Kconfig tree ini)"
+              echo "::endgroup::"
+              ;;
+          esac
                  
       - name: "🎶 Build kernel"
         if: github.event.inputs.toolchain_type == 'custom-tools'
