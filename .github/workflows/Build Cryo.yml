@@ -594,61 +594,59 @@ jobs:
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
-      - name: "🚄 Porting BBRv3 (via Cherry-Pick)"
+      - name: "🚄 Porting BBRv3 + PLB (cherry-pick)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          BBR3_SHA: 7bc9793d909f52f4a6cd45dd1381b2f200c18a7c
+          BBR3_REPO: https://github.com/topnotchfreaks/kernel_msm-5.15.git
         run: |
           set -euo pipefail
-          
-          if [[ "${KERNEL_BRANCH}" != *"android13-5.15"* ]]; then
-            echo "::notice::Branch bukan android13-5.15. Lewati porting BBRv3."
-            scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" -e CONFIG_TCP_CONG_BBR -e CONFIG_DEFAULT_BBR --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
-            exit 0
-          fi
+          DEFCFG=arch/arm64/configs/unified_defconfig
 
-          echo "::group::🔄 Menyiapkan Git untuk Porting"
-          git config --global user.email "bot@github.com"
-          git config --global user.name "GitHub Actions"
-          echo "::endgroup::"
+          echo "🔄 Menyiapkan Git untuk Porting"
+          git config user.name  "github-actions"
+          git config user.email "actions@github.com"
+          git config advice.mergeConflict false
+          git config advice.detachedHead false
 
-          echo "::group::📥 Mengambil BBRv3 dari Repositori GKI 5.15 Pihak Ketiga"
-          # Kita menambahkan repo custom kernel lain yang sudah stabil dengan BBRv3 di 5.15
-          # (Contoh: Repo kernel umum atau repo milik topnotchfreaks)
-          git remote add port_source https://github.com/topnotchfreaks/kernel_msm-5.15.git || true
-          git fetch port_source --no-tags --depth=50
-          echo "::endgroup::"
+          # Simpan perubahan step sebelumnya sebagai commit sementara.
+          # Saat keluar (sukses/gagal) HEAD dikembalikan ke semula, perubahan tetap ada di working tree.
+          BASE=$(git rev-parse HEAD)
+          trap 'git reset -q --mixed "$BASE" || true' EXIT
+          git add -A
+          git commit -q --allow-empty --no-verify -m "wip: snapshot sebelum porting BBRv3"
 
-          echo "::group::⚙️ Melakukan Cherry-Pick BBRv3"
-          # Menggunakan SHA dari commit BBRv3 yang sudah kamu ketahui
-          BBR3_SHA="7bc9793d909f52f4a6cd45dd1381b2f200c18a7c"
-          
-          # Coba cherry-pick. Jika ada konflik kecil, Git akan mencoba menyelesaikannya secara pintar
-          if git cherry-pick -X theirs "$BBR3_SHA"; then
-            echo "✅ Cherry-pick BBRv3 berhasil tanpa konflik berarti!"
-            
-            # Verifikasi file
-            for f in net/ipv4/tcp_bbr3.c net/ipv4/tcp_plb.c; do
-              [ -f "$f" ] || { echo "::error::File $f tidak ada!"; exit 1; }
-            done
-            
-            scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" \
-              -e CONFIG_TCP_CONG_BBR3 \
-              -e CONFIG_DEFAULT_BBR3 \
-              --set-str CONFIG_DEFAULT_TCP_CONG "bbr3"
-              
+          echo "📥 Mengambil BBRv3 dari repositori pihak ketiga"
+          git fetch -q --no-tags --depth=2 "$BBR3_REPO" "$BBR3_SHA"
+
+          echo "⚙️ Melakukan Cherry-Pick BBRv3"
+          # -n: tanpa commit. Konflik defconfig di GKI diharapkan (file itu tidak ada di sana).
+          git cherry-pick -n "$BBR3_SHA" >/tmp/bbr3-pick.log 2>&1 || true
+          grep -E 'CONFLICT|Auto-merging' /tmp/bbr3-pick.log | sed 's/^/  /' || true
+
+          # defconfig tidak dipakai (config diatur lewat scripts/config): kembalikan ke keadaan HEAD
+          if git cat-file -e "HEAD:$DEFCFG" 2>/dev/null; then
+            git checkout -q HEAD -- "$DEFCFG"
           else
-            echo "::warning::Cherry-pick BBRv3 gagal karena konflik terlalu besar. Membatalkan porting."
-            git cherry-pick --abort
-            
-            echo "::group::🛠️ Konfigurasi Fallback BBR v1"
-            scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" \
-              -d CONFIG_TCP_CONG_BBR3 \
-              -d CONFIG_DEFAULT_BBR3 \
-              -e CONFIG_TCP_CONG_BBR \
-              -e CONFIG_DEFAULT_BBR \
-              --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
-            echo "::endgroup::"
+            git rm -f -q --ignore-unmatch -- "$DEFCFG"
           fi
-          echo "::endgroup::"
+
+          # Konflik yang tersisa = konflik sungguhan: batalkan porting, tampilkan daftar file
+          UNMERGED=$(git diff --name-only --diff-filter=U || true)
+          if [ -n "$UNMERGED" ]; then
+            echo "::error::Porting BBRv3 gagal, konflik pada file berikut:"
+            echo "$UNMERGED" | sed 's/^/  - /'
+            git reset -q --hard HEAD     # kembali ke snapshot (perubahan step sebelumnya tetap aman)
+            exit 1
+          fi
+
+          for f in net/ipv4/tcp_bbr3.c net/ipv4/tcp_plb.c; do
+            [ -f "$f" ] || { echo "::error::$f tidak terbentuk setelah cherry-pick"; exit 1; }
+          done
+          if git grep -nE '^(<<<<<<<|>>>>>>>) ' -- net include >/dev/null 2>&1; then
+            echo "::error::masih ada penanda konflik di net/ atau include/"; exit 1
+          fi
+          echo "✅ BBRv3 + PLB terpasang"
           
       - name: "🏷️ Force short localversion"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
