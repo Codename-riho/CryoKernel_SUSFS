@@ -70,8 +70,15 @@ on:
           - Disabled
           - Enabled
         default: Disabled
-        
-        
+      deepsleep_tuning:
+        description: "Bake Deep Sleep (VM tunables) ke kernel?"
+        required: true
+        type: choice
+        default: "Disabled"
+        options:
+          - "Enabled"
+          - "Disabled"
+                          
 jobs:
   build-kernels:
     name: "❄️ Build Cryo ${{ matrix.kernel.name }} kernel"
@@ -358,6 +365,138 @@ jobs:
          echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
          echo "Custom Makefile line added successfully"
 
+      - name: "💤 Inject Deep Sleep (built-in kernel)"
+        if: github.event.inputs.deepsleep_tuning == 'Enabled'
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          DS_DELAY_SEC: 90
+          DS_STAT_SEC: 10          
+          DS_DIRTY_WB_CS: 3000     
+          DS_DIRTY_EXP_CS: 3000    
+          DS_LAPTOP_MODE: 1        
+        run: |
+          set -euo pipefail
+          
+          echo "::group::🛠️ Setup & Validation Deep Sleep Module"
+          # 1. Validasi Input
+          for v in DS_DELAY_SEC DS_STAT_SEC DS_DIRTY_WB_CS DS_DIRTY_EXP_CS DS_LAPTOP_MODE; do
+            case "${!v}" in ''|*[!0-9]*|0) 
+              if [ "$v" != "DS_LAPTOP_MODE" ]; then
+                echo "::error::Variabel $v harus angka > 0 (nilai saat ini: '${!v}')"; exit 1 
+              fi
+            ;; esac
+          done
+          
+          [ -d kernel/power ] || { echo "::error::Direktori kernel/power tidak ditemukan!"; exit 1; }
+          [ -f kernel/power/Makefile ] || { echo "::error::kernel/power/Makefile tidak ada!"; exit 1; }
+
+          # 2. Failsafe Feature Detection (Mendeteksi dukungan fitur via Headers & Source)
+          HAS_STAT=$(grep -qE 'sysctl_stat_interval' include/linux/vmstat.h mm/vmstat.c 2>/dev/null && echo 1 || echo 0)
+          HAS_WB=$(grep -qE 'dirty_writeback_interval' include/linux/writeback.h 2>/dev/null && echo 1 || echo 0)
+          HAS_EXP=$(grep -qE 'dirty_expire_interval' include/linux/writeback.h 2>/dev/null && echo 1 || echo 0)
+          HAS_LAPTOP=$(grep -qE 'laptop_mode' include/linux/swap.h 2>/dev/null && echo 1 || echo 0)
+          
+          echo "Ketersediaan Simbol -> stat: $HAS_STAT | wb: $HAS_WB | exp: $HAS_EXP | laptop: $HAS_LAPTOP"
+          
+          if [ $((HAS_STAT + HAS_WB + HAS_EXP + HAS_LAPTOP)) -eq 0 ]; then
+            echo "::warning::Tidak ada fitur VM yang kompatibel di kernel tree ini. Injeksi dibatalkan agar aman."
+            echo "::endgroup::"
+            exit 0
+          fi
+
+          # 3. Generate Header Konfigurasi Dinamis (Menghindari penggunaan 'sed' yang berisiko pada file C)
+          cat > kernel/power/cryo_deepsleep_conf.h << EOF
+          /* Auto-generated configuration for Cryo Deep Sleep */
+          #ifndef CRYO_DEEPSLEEP_CONF_H
+          #define CRYO_DEEPSLEEP_CONF_H
+
+          #define CRYO_DELAY_SEC    ${DS_DELAY_SEC}
+          #define CRYO_STAT_SEC     ${DS_STAT_SEC}
+          #define CRYO_DIRTY_WB_CS  ${DS_DIRTY_WB_CS}
+          #define CRYO_DIRTY_EXP_CS ${DS_DIRTY_EXP_CS}
+          #define CRYO_LAPTOP_MODE  ${DS_LAPTOP_MODE}
+
+          #define CRYO_HAS_STAT     ${HAS_STAT}
+          #define CRYO_HAS_WB       ${HAS_WB}
+          #define CRYO_HAS_EXP      ${HAS_EXP}
+          #define CRYO_HAS_LAPTOP   ${HAS_LAPTOP}
+
+          #endif /* CRYO_DEEPSLEEP_CONF_H */
+          EOF
+
+          # 4. Generate Source Code Inti (Gunakan 'EOF' string kuat agar bash tidak mengeksekusi variabel internal C)
+          cat > kernel/power/cryo_deepsleep.c << 'EOF'
+          // SPDX-License-Identifier: GPL-2.0-only
+          /*
+           * Cryo Deep Sleep Injector
+           * Safely tunes VM parameters post-boot to maximize idle deep sleep.
+           * Does not touch suspend/resume IRQ paths (Zero wake-up latency).
+           */
+           
+          #define pr_fmt(fmt) "cryo_deepsleep: " fmt
+
+          #include <linux/init.h>
+          #include <linux/kernel.h>
+          #include <linux/jiffies.h>
+          #include <linux/workqueue.h>
+          #include <linux/writeback.h>
+          #include <linux/swap.h>
+          
+          /* Include generated configs */
+          #include "cryo_deepsleep_conf.h"
+
+          #if CRYO_HAS_STAT
+          extern int sysctl_stat_interval;
+          #endif
+
+          static void cryo_deepsleep_apply(struct work_struct *work)
+          {
+          #if CRYO_HAS_STAT
+          	sysctl_stat_interval = CRYO_STAT_SEC * HZ;
+          #endif
+          
+          #if CRYO_HAS_WB
+          	dirty_writeback_interval = CRYO_DIRTY_WB_CS;
+          #endif
+          
+          #if CRYO_HAS_EXP
+          	dirty_expire_interval = CRYO_DIRTY_EXP_CS;
+          #endif
+
+          #if CRYO_HAS_LAPTOP
+          	laptop_mode = CRYO_LAPTOP_MODE;
+          #endif
+
+          	pr_info("VM Tunables Injected Safely (Delayed Overwrite Successful).\n");
+          }
+          
+          static DECLARE_DELAYED_WORK(cryo_deepsleep_work, cryo_deepsleep_apply);
+
+          static int __init cryo_deepsleep_init(void)
+          {
+          	pr_info("Scheduling deep sleep injection in %d seconds...\n", CRYO_DELAY_SEC);
+          	schedule_delayed_work(&cryo_deepsleep_work, CRYO_DELAY_SEC * HZ);
+          	return 0;
+          }
+          
+          late_initcall(cryo_deepsleep_init);
+          EOF
+          
+          # 5. Pasang ke sistem Build Kernel (Makefile)
+          if ! grep -q 'cryo_deepsleep.o' kernel/power/Makefile; then
+            echo -e "\n# Cryo Deep Sleep Module\nobj-y += cryo_deepsleep.o" >> kernel/power/Makefile
+          fi
+
+          echo "::endgroup::"
+          
+          # 6. Final Report
+          echo "✅ Modul cryo_deepsleep terpasang secara native!"
+          echo "   • Writeback Centisecs : $([ $HAS_WB = 1 ] && echo "${DS_DIRTY_WB_CS}cs" || echo "Not Supported")"
+          echo "   • Expire Centisecs    : $([ $HAS_EXP = 1 ] && echo "${DS_DIRTY_EXP_CS}cs" || echo "Not Supported")"
+          echo "   • Laptop Mode I/O     : $([ $HAS_LAPTOP = 1 ] && echo "Enabled" || echo "Not Supported")"
+          echo "   • Execution Delay     : ${DS_DELAY_SEC} seconds (bypassing init.rc)"
+          
       - name: "🧩 Configure kernel & patches"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
