@@ -1,4 +1,4 @@
-name: "Build Cryo Kernel"
+name: "Build Cryo Kernel via Alpine"
 
 env:
   OUT_DIR: "out"
@@ -1147,7 +1147,7 @@ jobs:
             echo "🔄 Memperbarui identitas kernel..."
             sed -i -E \
               -e 's/^([[:space:]]*)LINUX_COMPILE_BY=.*/\1LINUX_COMPILE_BY="Dyatz"/' \
-              -e 's/^([[:space:]]*)LINUX_COMPILE_HOST=.*/\1LINUX_COMPILE_HOST="GitHub"/' "$F"
+              -e 's/^([[:space:]]*)LINUX_COMPILE_HOST=.*/\1LINUX_COMPILE_HOST="Alpine"/' "$F"
 
             BAD=$(grep -E '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F" \
               | grep -vE 'LINUX_COMPILE_BY="Dyatz"$|LINUX_COMPILE_HOST="GitHub"$' || true)
