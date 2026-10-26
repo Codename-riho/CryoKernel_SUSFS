@@ -1,0 +1,29 @@
+name: "Sync SUSFS4KSU Mirror"
+
+on:
+  workflow_dispatch: # Mengizinkan tombol jalankan manual
+  schedule:
+    - cron: "0 0 * * 0" # Berjalan otomatis setiap hari Minggu (opsional)
+
+jobs:
+  mirror-susfs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Wajib agar Actions bisa melakukan push ke repo Anda
+    
+    steps:
+      - name: "📥 Clone Branch dari GitLab"
+        run: |
+          echo "Mengunduh branch gki-android13-5.15 dari GitLab..."
+          # Menggunakan --single-branch agar lebih cepat dan tidak membebani server
+          git clone -b gki-android13-5.15 --single-branch https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs4ksu
+          
+      - name: "📤 Push ke Repositori GitHub Ini"
+        working-directory: /tmp/susfs4ksu
+        run: |
+          echo "Menyiapkan autentikasi push..."
+          git remote add github "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          
+          echo "Melakukan force-push ke GitHub..."
+          git push -f github gki-android13-5.15
+          
