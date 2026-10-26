@@ -233,6 +233,11 @@ jobs:
         run: |
           echo 80 > /proc/sys/vm/swappiness || echo "::warning::tidak bisa mengubah swappiness"
           cat /proc/sys/vm/swappiness
+          if echo 80 > /proc/sys/vm/swappiness 2>/dev/null; then
+            echo "✅ swappiness diatur ke $(cat /proc/sys/vm/swappiness)"
+          else
+            echo "::warning::tidak bisa mengubah swappiness (nilai saat ini: $(cat /proc/sys/vm/swappiness))"
+          fi
 
       - name: "🌟 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
