@@ -1241,7 +1241,7 @@ jobs:
           exec chroot /opt/glibc-root /usr/bin/env LANG=C.UTF-8 /bin/sh -c 'cd "$1" && shift && exec "$@"' gx "$PWD" "$@"
           WRAP
           chmod +x /usr/local/bin/gx
-          gx sh -c 'ldd --version | head -n1'
+          gx getconf GNU_LIBC_VERSION
           
       - name: "🔨 Build kernel"
         if: github.event.inputs.toolchain_type == 'android-tools'
