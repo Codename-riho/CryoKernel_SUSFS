@@ -1416,11 +1416,11 @@ jobs:
           if [ -n "$BT" ]; then
             BUILD_TOOLS=$(head -n1 "$BT" | tr -d '\r\n')
           elif [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
-            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:inputs.customClangRepo})"
+            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:-unknown})"
           else
             BUILD_TOOLS="android-tools (clang-r614150)"
           fi
-          BUILD_TOOLS=$(printf '%s' "$BUILD_TOOLS" | esc)
+          BUILD_TOOLS=$(printf '%s' "${BUILD_TOOLS:-unknown}" | esc)
 
           MSG="✅ <b>Kernel Build Successful</b>
 
@@ -1528,11 +1528,11 @@ jobs:
 
           # Artifact build_tools.txt tidak ada di job ini, jadi diturunkan dari input
           if [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
-            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:inputs.customClangRepo})"
+            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:-unknown})"
           else
             BUILD_TOOLS="android-tools (clang-r614150)"
           fi
-          BUILD_TOOLS=$(printf '%s' "$BUILD_TOOLS" | esc)
+          BUILD_TOOLS=$(printf '%s' "${BUILD_TOOLS:-unknown}" | esc)
 
           MANAGER="$KSU_MANAGER"
           if [ -n "$KSU_REF" ]; then MANAGER="$KSU_MANAGER @ $KSU_REF"; fi
