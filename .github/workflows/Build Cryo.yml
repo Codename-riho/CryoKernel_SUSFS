@@ -594,42 +594,51 @@ jobs:
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
-      - name: "🚄 Apply BBRv3 + PLB"
+      - name: "🚄 Apply BBRv3 (WildKernels GKI Port)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          BBR3_SHA: "7bc9793d909f52f4a6cd45dd1381b2f200c18a7c"
         run: |
           set -euo pipefail
           
-          echo "::group::📥 Unduh Patch BBRv3"
-          curl -fsSL --retry 3 -o /tmp/bbr3.patch \
-            "https://github.com/topnotchfreaks/kernel_msm-5.15/commit/${BBR3_SHA}.patch"
+          echo "::group::📥 Mengunduh Port BBRv3 (WildKernels)"
+          # Kloning repo patch WildKernels secara dangkal (depth 1) agar super cepat
+          git clone --depth 1 https://github.com/WildKernels/kernel_patches.git /tmp/kernel_patches
+          
+          # Mencari letak file patch BBRv3 secara dinamis di dalam folder
+          BBR_PATCH=$(find /tmp/kernel_patches -type f -name "*bbrv3*.patch" -o -name "*bbr3*.patch" | head -n 1)
+          
+          if [ -n "$BBR_PATCH" ] && [ -f "$BBR_PATCH" ]; then
+            echo "Patch BBRv3 ditemukan di: $BBR_PATCH"
+            cp "$BBR_PATCH" /tmp/bbr3.patch
+          else
+            echo "::warning::Patch BBRv3 tidak ditemukan di repositori WildKernels!"
+            touch /tmp/bbr3.patch # Buat file kosong agar git apply check langsung gagal dan memicu mode Fallback
+          fi
           echo "::endgroup::"
 
           OPTS="--exclude=arch/arm64/configs/unified_defconfig --ignore-whitespace --whitespace=nowarn"
           
-          # Uji coba kecocokan patch terlebih dahulu
+          # Uji coba kecocokan patch BBRv3 GKI
           if git apply --check $OPTS /tmp/bbr3.patch >/tmp/bbr3_patch_check.log 2>&1; then
             echo "::group::⚙️ Memasang Patch BBRv3"
             git apply -v $OPTS /tmp/bbr3.patch
             echo "::endgroup::"
 
-            # Verifikasi file penting benar-benar dibuat
-            for f in net/ipv4/tcp_bbr3.c net/ipv4/tcp_plb.c; do
-              [ -f "$f" ] || { echo "::error::File $f tidak terbentuk"; exit 1; }
-            done
-            
-            echo "✅ BBRv3 + PLB berhasil terpasang!"
+            # Modifikasi Config agar menggunakan BBR3 sebagai default
+            scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" \
+              -e CONFIG_TCP_CONG_BBR3 \
+              -e CONFIG_DEFAULT_BBR3 \
+              --set-str CONFIG_DEFAULT_TCP_CONG "bbr3"
+
+            echo "✅ BBRv3 berhasil terpasang dari port WildKernels!"
           
           else
-            echo "::warning::Patch BBRv3 tidak kompatibel (konflik); melewati patch dan memakai BBR bawaan kernel."
+            echo "::warning::Patch BBRv3 tidak kompatibel dengan ${KERNEL_BRANCH}; melewati patch dan memakai BBR v1 bawaan kernel."
             
-            echo "::group::⚠️ Log Kegagalan Patch (80 baris pertama)"
+            echo "::group::⚠️ Log Kegagalan Patch"
             sed -n '1,80p' /tmp/bbr3_patch_check.log || true
             echo "::endgroup::"
 
             echo "::group::🛠️ Konfigurasi Fallback Defconfig"
-            # Pastikan variabel DEFCONFIG_NAME terbaca dari global env
             scripts/config --file "arch/arm64/configs/${DEFCONFIG_NAME}" \
               -d CONFIG_TCP_CONG_BBR3 \
               -d CONFIG_DEFAULT_BBR3 \
@@ -638,9 +647,9 @@ jobs:
               --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
             echo "::endgroup::"
 
-            echo "✅ Fallback BBR bawaan aktif; build dilanjutkan tanpa BBRv3/PLB."
+            echo "✅ Fallback BBR v1 aktif; build dilanjutkan tanpa BBRv3."
           fi
-                 
+                         
       - name: "🏷️ Force short localversion"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
