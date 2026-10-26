@@ -475,13 +475,12 @@ jobs:
             -e CONFIG_LRU_GEN \
             -e CONFIG_LRU_GEN_ENABLED \
             -e CONFIG_CRYPTO_LZ4 \
-            -e CONFIG_KERNEL_LZ4 \
-            -e ZRAM_DEF_COMP_LZ4 \
-            --set-str CONFIG_ZRAM_DEF_COMP "lz4" \
-            -d CONFIG_KERNEL_GZIP \
-            -d CONFIG_KERNEL_LZO \
-            -d CONFIG_KERNEL_XZ \
-            -d CONFIG_KERNEL_ZSTD \
+            -e CONFIG_ZRAM_DEF_COMP_LZ4 \
+            -d CONFIG_ZRAM_DEF_COMP_LZORLE \
+            -d CONFIG_ZRAM_DEF_COMP_LZO \
+            -d CONFIG_ZRAM_DEF_COMP_ZSTD \
+            -d CONFIG_ZRAM_DEF_COMP_LZ4HC \
+            -d CONFIG_ZRAM_DEF_COMP_842 \
             -d CONFIG_KERNEL_BZIP2 \
             -d CONFIG_KERNEL_UNCOMPRESSED \
             -d CONFIG_KPROFILES
@@ -1144,26 +1143,29 @@ jobs:
       - name: "✍️ Set kernel build identity"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
+          BY_VAL="Dyatz"
+          HOST_VAL="Alpine"
           F=scripts/mkcompile_h
           [ -f "$F" ] || { echo "::error::$F tidak ditemukan"; exit 1; }
           if ! grep -qE '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F"; then
             echo "::error::Tidak ada penulisan LINUX_COMPILE_BY/HOST di $F"; exit 1
           fi
 
-          # Baris yang menulis identitas tapi belum bernilai Dyatz / GitHub
-          BAD=$(grep -E '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F" \
-            | grep -vE 'LINUX_COMPILE_BY="Dyatz"$|LINUX_COMPILE_HOST="GitHub"$' || true)
+          # Baris identitas yang nilainya belum sesuai
+          check_bad() {
+            grep -E '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F" \
+              | grep -vE "LINUX_COMPILE_BY=\"${BY_VAL}\"\$|LINUX_COMPILE_HOST=\"${HOST_VAL}\"\$" || true
+          }
 
-          if [ -z "$BAD" ]; then
-            echo "⏭️ Identitas kernel sudah sesuai (Dyatz @ GitHub), proses dilewati (skip)."
+          if [ -z "$(check_bad)" ]; then
+            echo "⏭️ Identitas kernel sudah sesuai (${BY_VAL} @ ${HOST_VAL}), dilewati."
           else
             echo "🔄 Memperbarui identitas kernel..."
             sed -i -E \
-              -e 's/^([[:space:]]*)LINUX_COMPILE_BY=.*/\1LINUX_COMPILE_BY="Dyatz"/' \
-              -e 's/^([[:space:]]*)LINUX_COMPILE_HOST=.*/\1LINUX_COMPILE_HOST="GitHub"/' "$F"
+              -e "s/^([[:space:]]*)LINUX_COMPILE_BY=.*/\1LINUX_COMPILE_BY=\"${BY_VAL}\"/" \
+              -e "s/^([[:space:]]*)LINUX_COMPILE_HOST=.*/\1LINUX_COMPILE_HOST=\"${HOST_VAL}\"/" "$F"
 
-            BAD=$(grep -E '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F" \
-              | grep -vE 'LINUX_COMPILE_BY="Dyatz"$|LINUX_COMPILE_HOST="GitHub"$' || true)
+            BAD=$(check_bad)
             if [ -n "$BAD" ]; then
               echo "::error::Identitas kernel belum sesuai:"; echo "$BAD"; exit 1
             fi
@@ -1227,20 +1229,38 @@ jobs:
           scripts/config --file out/.config -d LTO_CLANG_THIN -e LTO_CLANG_FULL
           make ARCH=arm64 LLVM=1 O=out olddefconfig
           # Pastikan config penting tidak hilang setelah resolusi dependensi
-          CHECK_LIST="CONFIG_KSU CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 ZRAM_DEF_COMP_LZ4 CONFIG_KERNEL_LZ4"
-          [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
+          CHECK_LIST="CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 CONFIG_ZRAM_DEF_COMP_LZ4"
+          if [ "${{ matrix.kernel.enable_ksu }}" = "true" ]; then
+            CHECK_LIST="$CHECK_LIST CONFIG_KSU"
+            [ "${KSU_MANAGER:-}" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
+          fi
+
+          # Baca .config sekali saja: daftar semua opsi yang bernilai =y
+          ENABLED=" $({ grep -E '^CONFIG_[A-Za-z0-9_]+=y$' out/.config || true; } | cut -d= -f1 | tr '\n' ' ') "
 
           {
             echo "### Cek .config akhir"
             for c in $CHECK_LIST; do
-              if grep -q "^${c}=y" out/.config; then
-                echo "- ✅ \`$c=y\`"
-              else
-                echo "- ⚠️ \`$c\` TIDAK aktif"
-                echo "::warning::$c tidak aktif di .config akhir"
-              fi
+              case "$ENABLED" in
+                *" $c "*) echo "- ✅ \`$c=y\`" ;;
+                *) echo "- ⚠️ \`$c\` TIDAK aktif"
+                   echo "::warning::$c tidak aktif di .config akhir" ;;
+              esac
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Diagnosa ZRAM/LZ4: hanya dicetak kalau LZ4 tidak aktif
+          case "$ENABLED" in
+            *" CONFIG_ZRAM_DEF_COMP_LZ4 "*) ;;
+            *)
+              echo "::group::Diagnosa ZRAM/LZ4"
+              echo "== ZRAM/LZ4 di .config"
+              grep -nE 'CONFIG_ZRAM([= ]|_DEF)|CONFIG_CRYPTO_LZ4' out/.config || echo "(tidak ada entri ZRAM/LZ4 sama sekali)"
+              echo "== Kconfig zram"
+              grep -n -B1 -A3 'ZRAM_DEF_COMP_LZ4' drivers/block/zram/Kconfig 2>/dev/null || echo "(ZRAM_DEF_COMP_LZ4 tidak ada di Kconfig tree ini)"
+              echo "::endgroup::"
+              ;;
+          esac
           
       - name: "🎶 Build kernel"
         if: github.event.inputs.toolchain_type == 'custom-tools'
