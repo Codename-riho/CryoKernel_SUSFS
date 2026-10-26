@@ -368,26 +368,27 @@ jobs:
           echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VERSION }}\"" >> "$CONFIG_FILE"
           
           apply_patch() {
-            local url="$1"
-            local file=$(basename "$url")
-            curl -L -o "$file" "$url"
-            
-            # Cek apakah patch sudah terpasang (Logika pintar dari Claude)
-            if patch -p1 -R --dry-run -s -f < "$file" > /dev/null 2>&1; then
-              echo "✅ Sudah terpasang, dilewati: $file"
+            local url="$1" name file
+            name=$(basename "$url"); file="/tmp/$name"
+            curl -fsSL --retry 3 -o "$file" "$url" || { echo "::error::Gagal unduh $name"; exit 1; }
+
+            if patch -p1 -R --dry-run -s -f < "$file" >/dev/null 2>&1; then
+              echo "✅ Sudah terpasang, dilewati: $name"
+            elif patch -p1 --dry-run -s -f < "$file" >/dev/null 2>&1; then
+              patch -p1 -s --batch --no-backup-if-mismatch < "$file"
+              echo "✅ Berhasil dipasang: $name"
             else
-              # Jika belum terpasang, paksa pasang. Jika gagal, HENTIKAN BUILD (Rem darurat)
-              patch -p1 --batch < "$file" || { echo "::error::Hunks failed in $file (Konflik kode serius!)"; exit 1; }
-              echo "✅ Berhasil dipasang: $file"
+              echo "::error::Patch tidak cocok: $name"
+              patch -p1 --dry-run --batch < "$file" || true
+              exit 1
             fi
             rm -f "$file"
           }
-          
-          apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
-          echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
-            [ -n "$p" ] && apply_patch "$p"
-          done
+          while read -r p; do
+            [ -n "$p" ] || continue
+            apply_patch "$p"
+          done < <(echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]')
           
           # Use scripts/config for safe config manipulation
           scripts/config --file "$CONFIG_FILE" \
