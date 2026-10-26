@@ -1220,6 +1220,15 @@ jobs:
           scripts/config --file "$CONFIG_PATH" -e CONFIG_CPU_FREQ_DEFAULT_GOV_WALT
 
           echo "✅ CPU Governor berhasil disetel ke 'walt' pada file $DEFCONFIG_NAME!"
+
+      - name: "🛡️ Cek kompatibilitas toolchain (Alpine/musl)"
+        shell: sh
+        run: |
+          if [ "${{ github.event.inputs.toolchain_type }}" = "android-tools" ]; then
+            echo "::error::android-tools memakai binary prebuilt AOSP berbasis glibc (pahole, m4, clang) yang tidak bisa jalan di Alpine (musl). Jalankan ulang dengan toolchain_type=custom-tools."
+            exit 1
+          fi
+          echo "✅ toolchain_type=${{ github.event.inputs.toolchain_type }} (kompatibel dengan Alpine)"
           
       - name: "🔨 Build kernel"
         if: github.event.inputs.toolchain_type == 'android-tools'
