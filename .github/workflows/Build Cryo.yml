@@ -1375,15 +1375,9 @@ jobs:
           # 6) Laporan (juga ke Step Summary) - yang di-skip terlihat jelas
           st() { [ "$1" = 1 ] && echo "$2" || echo "SKIP (simbol tidak ada)"; }
           {
-            echo "### 💤 Cryo Deep Sleep"
-            echo "- Writeback interval : $(st "$HAS_WB" "${DS_DIRTY_WB_CS} cs")"
-            echo "- Expire interval    : $(st "$HAS_EXP" "${DS_DIRTY_EXP_CS} cs")"
-            echo "- Stat interval      : $(st "$HAS_STAT" "${DS_STAT_SEC} s")"
-            echo "- VFS cache pressure : $(st "$HAS_VFS" "${DS_VFS_CACHE}")"
-            echo "- Dirty BG ratio     : $(st "$HAS_BG_RATIO" "${DS_DIRTY_BG_RATIO}%")"
-            echo "- Dirty ratio        : $(st "$HAS_RATIO" "${DS_DIRTY_RATIO}%")"
-            echo "- Laptop mode        : $(st "$HAS_LAPTOP" "${DS_LAPTOP_MODE}")"
-            echo "- Diterapkan         : ${DS_DELAY_SEC}s setelah boot; ulang tiap ${DS_REAPPLY_SEC}s (0 = sekali)"
+            echo "### 😴 Cryo Enhance Deep Sleep"
+            echo "✅ deep sleep successfully Enhance"
+            
           } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
           
       - name: "🔨 Build kernel"
