@@ -1,68 +1,86 @@
-name: GKI 5.15 Mirror Sync
+name: 📦 Import Kernel AOSP
 
 on:
   workflow_dispatch:
+    inputs:
+      aosp_ref:
+        description: "Branch/tag di android.googlesource.com/kernel/common"
+        required: true
+        default: "android13-5.15-lts"
+      new_branch:
+        description: "Nama branch baru di repo ini"
+        required: true
+        default: "android13-5.15-lts"
+      depth:
+        description: "Kedalaman history (1 = commit terakhir saja)"
+        required: true
+        default: "1"
 
-permissions: 
+permissions:
   contents: write
 
-concurrency:
-  group: gki-mirror
-  cancel-in-progress: false
-
-env:
-  UPSTREAM_URL: "https://android.googlesource.com/kernel/common"
-  TARGET_BRANCH: "android13-5.15"
-
 jobs:
-  mirror:
-    name: "🔄 Mirror ${{ github.event_name == 'schedule' && '(terjadwal)' || '(manual)' }}"
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
+  import-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AOSP_URL: "https://android.googlesource.com/kernel/common"
+      AOSP_REF: ${{ inputs.aosp_ref }}
+      NEW_BRANCH: ${{ inputs.new_branch }}
+      DEPTH: ${{ inputs.depth }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: "🔄 Sync upstream Google Source"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 📥 Clone kernel dari AOSP
         run: |
           set -euo pipefail
 
-          [ -n "${GITHUB_TOKEN:-}" ] || { echo "::error::GITHUB_TOKEN tidak tersedia"; exit 1; }
+          git check-ref-format "refs/heads/$NEW_BRANCH" \
+            || { echo "❌ Nama branch tidak valid: $NEW_BRANCH"; exit 1; }
+          [[ "$DEPTH" =~ ^[1-9][0-9]*$ ]] \
+            || { echo "❌ Depth harus angka >= 1"; exit 1; }
 
-          AUTH="Authorization: Basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-          echo "::add-mask::$GITHUB_TOKEN"
-          echo "::add-mask::${AUTH#Authorization: Basic }"
-          TARGET_URL="${TARGET_URL:-https://github.com/${GITHUB_REPOSITORY}.git}"
-          gt() { git -c "http.extraheader=$AUTH" "$@"; }
-
-          echo "::group::🔍 Bandingkan commit upstream vs target"
-          UP_SHA=$(git ls-remote "$UPSTREAM_URL" "refs/heads/$TARGET_BRANCH" | cut -f1)
-          [ -n "$UP_SHA" ] || { echo "::error::Branch $TARGET_BRANCH tidak ditemukan di upstream"; exit 1; }
-          TG_SHA=$(gt ls-remote "$TARGET_URL" "refs/heads/$TARGET_BRANCH" | cut -f1)
-          echo "upstream: $UP_SHA"
-          echo "target  : ${TG_SHA:-<belum ada>}"
-          echo "::endgroup::"
-
-          if [ "$UP_SHA" = "$TG_SHA" ]; then
-            echo "✅ Sudah sinkron, tidak ada yang di-push."
-            echo "✅ Sudah sinkron di \`${UP_SHA:0:12}\`" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$REMOTE" "refs/heads/$NEW_BRANCH" >/dev/null 2>&1; then
+            echo "❌ Branch $NEW_BRANCH sudah ada di repo ini. Hapus dulu atau pakai nama lain."
+            exit 1
           fi
 
-          echo "::group::📥 Clone upstream (depth=1, satu branch)"
+          ok=0
           for i in 1 2 3; do
-            rm -rf work_dir
-            git clone --single-branch --no-tags --branch "$TARGET_BRANCH" "$UPSTREAM_URL" work_dir 
-            [ "$i" -lt 3 ] || { echo "::error::Clone upstream gagal 3x"; exit 1; }
-            echo "⚠️ Clone gagal ($i/3), mencoba ulang..."; sleep $((i * 10))
+            echo "📥 Clone $AOSP_REF (percobaan $i/3)"
+            if git clone --depth="$DEPTH" --single-branch --branch "$AOSP_REF" "$AOSP_URL" kernel; then
+              ok=1; break
+            fi
+            rm -rf kernel; sleep 15
           done
-          echo "::endgroup::"
+          [ "$ok" = 1 ] || { echo "❌ Clone gagal setelah 3x percobaan"; exit 1; }
 
-          echo "::group::🚀 Push ke repository sendiri"
-          cd work_dir
-          git remote add target "$TARGET_URL"
-          gt push target "HEAD:refs/heads/$TARGET_BRANCH" --no-tags \
-            --force-with-lease="refs/heads/$TARGET_BRANCH:${TG_SHA}"
-          echo "::endgroup::"
+      - name: 🌿 Push ke branch baru
+        run: |
+          set -euo pipefail
+          cd kernel
 
-          echo "🔄 Mirror \`${TG_SHA:0:12}${TG_SHA:+}\` → \`${UP_SHA:0:12}\`" | sed 's/`` →/(baru) →/' >> "$GITHUB_STEP_SUMMARY"
-          
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config http.postBuffer 524288000
+
+          git remote add mine "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          SRC_SHA="$(git rev-parse --short HEAD)"
+          KVER="$(make -s kernelversion 2>/dev/null || echo '?')"
+
+          if ! git push mine "HEAD:refs/heads/$NEW_BRANCH"; then
+            echo "⚠️ Push ditolak (kemungkinan history shallow), mencoba sebagai commit tunggal"
+            git checkout -q --orphan flat
+            git commit -q -m "Import kernel/common $AOSP_REF @ $SRC_SHA" \
+                           -m "Source: $AOSP_URL"
+            git push mine "HEAD:refs/heads/$NEW_BRANCH"
+          fi
+
+          {
+            echo "### 📦 Import Kernel AOSP"
+            echo "- Sumber: \`$AOSP_URL\` (\`$AOSP_REF\`)"
+            echo "- Versi kernel: \`$KVER\`"
+            echo "- Branch: \`$NEW_BRANCH\`"
+            echo "- Commit: \`$(git rev-parse --short HEAD)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
