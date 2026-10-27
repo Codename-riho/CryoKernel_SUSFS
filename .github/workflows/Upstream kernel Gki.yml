@@ -1,8 +1,6 @@
 name: GKI 5.15 Mirror Sync
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"   # tiap 6 jam (UTC); ubah sesuai kebutuhan
   workflow_dispatch:         # Bisa dijalankan manual dari tab Actions
 
 # Tidak butuh GITHUB_TOKEN: push memakai secret GH_PAT
@@ -15,7 +13,7 @@ concurrency:
 
 env:
   UPSTREAM_URL: "https://android.googlesource.com/kernel/common"
-  TARGET_BRANCH: "android13-5.15-lts"
+  TARGET_BRANCH: "android13-5.15"
 
 jobs:
   mirror:
