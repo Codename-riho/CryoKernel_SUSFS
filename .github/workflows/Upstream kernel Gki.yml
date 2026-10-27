@@ -1,13 +1,11 @@
 name: GKI 5.15 Mirror Sync
 
 on:
-  workflow_dispatch:         # Bisa dijalankan manual dari tab Actions
+  workflow_dispatch:
 
-# Tidak butuh GITHUB_TOKEN: push memakai secret GH_PAT Otomatis 
 permissions: 
-     contents: write
+  contents: write
 
-# Cegah dua sync berjalan bersamaan (force-push saling timpa)
 concurrency:
   group: gki-mirror
   cancel-in-progress: false
@@ -22,18 +20,16 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
-      # Tidak perlu actions/checkout: yang dimirror adalah repo upstream, bukan isi repo ini.
       - name: "🔄 Sync upstream Google Source"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          [ -n "${GH_PAT:-}" ] || { echo "::error::Secret GH_PAT belum diisi"; exit 1; }
+          [ -n "${GITHUB_TOKEN:-}" ] || { echo "::error::GITHUB_TOKEN tidak tersedia"; exit 1; }
 
-          # PAT lewat header, bukan di URL (tidak bocor ke .git/config maupun log remote)
-          AUTH="Authorization: Basic $(printf 'x-access-token:%s' "$GH_PAT" | base64 -w0)"
-          echo "::add-mask::$GH_PAT"
+          AUTH="Authorization: Basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          echo "::add-mask::$GITHUB_TOKEN"
           echo "::add-mask::${AUTH#Authorization: Basic }"
           TARGET_URL="${TARGET_URL:-https://github.com/${GITHUB_REPOSITORY}.git}"
           gt() { git -c "http.extraheader=$AUTH" "$@"; }
@@ -64,9 +60,9 @@ jobs:
           echo "::group::🚀 Push ke repository sendiri"
           cd work_dir
           git remote add target "$TARGET_URL"
-          # force hanya bila target masih di posisi yang tadi kita lihat (aman dari race)
           gt push target "HEAD:refs/heads/$TARGET_BRANCH" --no-tags \
             --force-with-lease="refs/heads/$TARGET_BRANCH:${TG_SHA}"
           echo "::endgroup::"
 
           echo "🔄 Mirror \`${TG_SHA:0:12}${TG_SHA:+}\` → \`${UP_SHA:0:12}\`" | sed 's/`` →/(baru) →/' >> "$GITHUB_STEP_SUMMARY"
+          
