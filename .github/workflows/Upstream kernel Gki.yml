@@ -51,7 +51,7 @@ jobs:
           echo "::group::📥 Clone upstream (depth=1, satu branch)"
           for i in 1 2 3; do
             rm -rf work_dir
-            git clone --depth=1 --single-branch --no-tags --branch "$TARGET_BRANCH" "$UPSTREAM_URL" work_dir && break
+            git clone --single-branch --no-tags --branch "$TARGET_BRANCH" "$UPSTREAM_URL" work_dir 
             [ "$i" -lt 3 ] || { echo "::error::Clone upstream gagal 3x"; exit 1; }
             echo "⚠️ Clone gagal ($i/3), mencoba ulang..."; sleep $((i * 10))
           done
