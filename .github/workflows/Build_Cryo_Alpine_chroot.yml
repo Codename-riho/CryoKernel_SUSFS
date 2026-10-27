@@ -216,12 +216,6 @@ jobs:
         uses: jirutka/setup-alpine@v1
         with:
           branch: latest-stable
-          packages: >
-            bash coreutils findutils grep sed gawk patch diffutils tar gzip bzip2 xz zip unzip util-linux
-            git curl wget aria2 rsync jq ca-certificates tzdata python3 perl
-            build-base bc bison flex cpio pkgconf linux-headers
-            openssl openssl-dev elfutils-dev zlib-dev ncurses-dev
-            clang lld llvm llvm-dev
             
       - name: "🔧 Buat shell bash untuk chroot Alpine"
         shell: bash
@@ -237,16 +231,34 @@ jobs:
           alpine-bash.sh --root -c 'cat /etc/alpine-release; uname -sr; echo "shell: $BASH_VERSION"'
 
       - name: "✨ Setup workspace (Alpine)"
+        # Pastikan menggunakan shell yang telah diatur oleh alpine (misal shell: alpine.sh {0}) jika diperlukan di workflow
         run: |
           set -eu
+          
+          echo "::group::📦 Menginstal Paket Utama Alpine"
+          # Sinkronisasi index dan install seluruh paket toolchain + utilitas wajib
+          apk update
+          apk add --no-cache \
+            bash coreutils findutils grep sed gawk patch diffutils tar gzip bzip2 xz zip unzip util-linux \
+            git curl wget aria2 rsync jq ca-certificates tzdata python3 perl \
+            build-base bc bison flex cpio pkgconf linux-headers \
+            openssl openssl-dev elfutils-dev zlib-dev ncurses-dev \
+            clang lld llvm llvm-dev
+          echo "::endgroup::"
+
+          echo "::group::📦 Menginstal Paket Opsional & Kompatibilitas"
           # Paket opsional: kalau tidak ada di repo, build tetap lanjut
           apk add --no-cache pahole || echo "::warning::paket pahole tidak tersedia (BTF mungkin tidak aktif)"
           apk add --no-cache gcompat libstdc++ libgcc || echo "::warning::gcompat tidak terpasang (toolchain glibc prebuilt tidak akan jalan)"
+          echo "::endgroup::"
 
+          echo "::group::📥 Memasang AOSP Repo Launcher"
           # 'repo' (AOSP) tidak ada di apk: pakai launcher resmi
           curl -fsSL --retry 3 -o /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           chmod +x /usr/local/bin/repo
+          echo "::endgroup::"
 
+          echo "::group::🔍 Validasi Tool Wajib"
           # Cek cepat: gagal di sini kalau ada tool wajib yang belum terpasang
           MISSING=""
           for t in bash openssl clang ld.lld llvm-ar bc bison flex perl python3 cpio pkgconf rsync repo; do
@@ -256,10 +268,11 @@ jobs:
             echo "::error::Tool wajib belum terpasang:$MISSING"; exit 1
           fi
           echo "✅ Semua tool wajib tersedia"
+          echo "::endgroup::"
 
           mkdir -p "${{ env.KERNEL_LOC_DIR }}"
           echo "BUILD_TIME=$(TZ=Asia/Jakarta date +'%Y-%m-%d')" >> "$GITHUB_ENV"
-
+          
       - name: "🌟 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
