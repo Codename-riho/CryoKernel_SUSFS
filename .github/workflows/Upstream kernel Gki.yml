@@ -3,8 +3,9 @@ name: GKI 5.15 Mirror Sync
 on:
   workflow_dispatch:         # Bisa dijalankan manual dari tab Actions
 
-# Tidak butuh GITHUB_TOKEN: push memakai secret GH_PAT
-permissions: {}
+# Tidak butuh GITHUB_TOKEN: push memakai secret GH_PAT Otomatis 
+permissions: 
+     contents: write
 
 # Cegah dua sync berjalan bersamaan (force-push saling timpa)
 concurrency:
