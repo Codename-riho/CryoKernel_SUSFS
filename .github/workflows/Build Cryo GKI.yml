@@ -23,6 +23,11 @@ on:
         required: true
         type: string
         default: "android13-5.15-lts"
+      kernelDevice:
+        description: "Device (used for defconfig)"
+        required: true
+        type: string
+        default: "gki"
       localVersion:
         description: "Custom localversion suffix"
         required: true
@@ -102,11 +107,11 @@ jobs:
           inputs.buildKSU == 'ksu' && '["ksu"]' ||
           '["noksu"]' ) }}
     env:
-      KERNEL_LOC_DIR: "common_gki"
+      KERNEL_LOC_DIR: common_${{ inputs.kernelDevice }}
       KERNEL_NAME: "common"
       KERNEL_REPO: ${{ inputs.kernelSourceURL }}
       KERNEL_BRANCH: ${{ inputs.kernelBranch }}
-      DEFCONFIG_NAME: "gki_defconfig"
+      DEFCONFIG_NAME: ${{ inputs.kernelDevice }}_defconfig
       LOCAL_VERSION: ${{ inputs.localVersion }}
       OUTPUT_NAME: "Image.gki.${{ matrix.variant }}"
       WORK_DIR: ${{ github.workspace }}
@@ -1214,6 +1219,7 @@ jobs:
           DROIDSPACES_SUPPORT: ${{ inputs.droidspaces_support || 'Enabled' }}
           TOOLCHAIN_TYPE: ${{ inputs.buildToolchains || 'android-tools' }}
           KERNEL_BRANCH: ${{ inputs.kernelBranch }}
+          KERNEL_DEVICE: ${{ inputs.kernelDevice }}
           LOCAL_VERSION: ${{ inputs.localVersion }}
           CUSTOM_CLANG_REPO: ${{ inputs.customClangRepo }}
           DEVICE_NAME: "Redmi Note 12 4G"
@@ -1275,6 +1281,7 @@ jobs:
 
           <b>📦 Build Information:</b>
           • Kernel: <code>Linux ${KERNEL_VERSION}</code>
+          • Defconfig: <code>${KERNEL_DEVICE}_defconfig</code>
           • Android: <code>13-16</code>
           • Branch: <code>${KERNEL_BRANCH}</code> (GKI)
           • Device: <code>${DEVICE_NAME}</code>
