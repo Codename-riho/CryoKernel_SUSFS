@@ -92,7 +92,7 @@ on:
 
 jobs:
   build-kernels:
-    name: "🚀 Build GKI [${{ matrix.variant }}]"
+    name: "❄️ Build GKI [${{ matrix.variant }}]"
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
@@ -255,7 +255,7 @@ jobs:
           mkdir -p clang_toolchain
 
           if [ "$CLANG_REPO" = "Neutron-Toolchains/antman" ]; then
-            echo "🚀 Mengambil Neutron Clang via antman..."
+            echo "🫳 Mengambil Neutron Clang via antman..."
             (
               cd clang_toolchain
               curl -fsSL --retry 3 -o antman "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
@@ -338,7 +338,7 @@ jobs:
           echo "# CONFIG_THINLTO is not set" >> "$CONFIG_FILE"
 
           # Script sign patch
-          curl -L -o sign.patch "https://raw.githubusercontent.com/yougotme101/kernel_patches/main/0001-scripts-sign-builds.patch"
+          curl -L -o sign.patch "https://raw.githubusercontent.com/Codename-riho/Kernel_builder/Builders/.github/Patches/0001-scripts-sign-builds.patch"
           patch -p1 < sign.patch || echo "::warning::Sign-builds patch gagal diterapkan"
           rm -f sign.patch
 
