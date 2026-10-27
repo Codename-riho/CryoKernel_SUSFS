@@ -1,0 +1,73 @@
+name: GKI 5.15 Mirror Sync
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # tiap 6 jam (UTC); ubah sesuai kebutuhan
+  workflow_dispatch:         # Bisa dijalankan manual dari tab Actions
+
+# Tidak butuh GITHUB_TOKEN: push memakai secret GH_PAT
+permissions: {}
+
+# Cegah dua sync berjalan bersamaan (force-push saling timpa)
+concurrency:
+  group: gki-mirror
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: "https://android.googlesource.com/kernel/common"
+  TARGET_BRANCH: "android13-5.15-lts"
+
+jobs:
+  mirror:
+    name: "🔄 Mirror ${{ github.event_name == 'schedule' && '(terjadwal)' || '(manual)' }}"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      # Tidak perlu actions/checkout: yang dimirror adalah repo upstream, bukan isi repo ini.
+      - name: "🔄 Sync upstream Google Source"
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+
+          [ -n "${GH_PAT:-}" ] || { echo "::error::Secret GH_PAT belum diisi"; exit 1; }
+
+          # PAT lewat header, bukan di URL (tidak bocor ke .git/config maupun log remote)
+          AUTH="Authorization: Basic $(printf 'x-access-token:%s' "$GH_PAT" | base64 -w0)"
+          echo "::add-mask::$GH_PAT"
+          echo "::add-mask::${AUTH#Authorization: Basic }"
+          TARGET_URL="${TARGET_URL:-https://github.com/${GITHUB_REPOSITORY}.git}"
+          gt() { git -c "http.extraheader=$AUTH" "$@"; }
+
+          echo "::group::🔍 Bandingkan commit upstream vs target"
+          UP_SHA=$(git ls-remote "$UPSTREAM_URL" "refs/heads/$TARGET_BRANCH" | cut -f1)
+          [ -n "$UP_SHA" ] || { echo "::error::Branch $TARGET_BRANCH tidak ditemukan di upstream"; exit 1; }
+          TG_SHA=$(gt ls-remote "$TARGET_URL" "refs/heads/$TARGET_BRANCH" | cut -f1)
+          echo "upstream: $UP_SHA"
+          echo "target  : ${TG_SHA:-<belum ada>}"
+          echo "::endgroup::"
+
+          if [ "$UP_SHA" = "$TG_SHA" ]; then
+            echo "✅ Sudah sinkron, tidak ada yang di-push."
+            echo "✅ Sudah sinkron di \`${UP_SHA:0:12}\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::group::📥 Clone upstream (depth=1, satu branch)"
+          for i in 1 2 3; do
+            rm -rf work_dir
+            git clone --depth=1 --single-branch --no-tags --branch "$TARGET_BRANCH" "$UPSTREAM_URL" work_dir && break
+            [ "$i" -lt 3 ] || { echo "::error::Clone upstream gagal 3x"; exit 1; }
+            echo "⚠️ Clone gagal ($i/3), mencoba ulang..."; sleep $((i * 10))
+          done
+          echo "::endgroup::"
+
+          echo "::group::🚀 Push ke repository sendiri"
+          cd work_dir
+          git remote add target "$TARGET_URL"
+          # force hanya bila target masih di posisi yang tadi kita lihat (aman dari race)
+          gt push target "HEAD:refs/heads/$TARGET_BRANCH" --no-tags \
+            --force-with-lease="refs/heads/$TARGET_BRANCH:${TG_SHA}"
+          echo "::endgroup::"
+
+          echo "🔄 Mirror \`${TG_SHA:0:12}${TG_SHA:+}\` → \`${UP_SHA:0:12}\`" | sed 's/`` →/(baru) →/' >> "$GITHUB_STEP_SUMMARY"
