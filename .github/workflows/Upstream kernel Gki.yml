@@ -25,7 +25,7 @@ jobs:
       # Tidak perlu actions/checkout: yang dimirror adalah repo upstream, bukan isi repo ini.
       - name: "🔄 Sync upstream Google Source"
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
