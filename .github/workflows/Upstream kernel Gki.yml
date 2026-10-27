@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   import-kernel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
       AOSP_URL: "https://android.googlesource.com/kernel/common"
