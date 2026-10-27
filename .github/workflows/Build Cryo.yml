@@ -365,7 +365,7 @@ jobs:
          echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
          echo "Custom Makefile line added successfully"
 
-      - name: "💤 Inject Deep Sleep (built-in kernel)"
+      - name: "💤 Enhance Deep Sleep "
         if: github.event.inputs.deepsleep_tuning == 'Enabled'
         shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
