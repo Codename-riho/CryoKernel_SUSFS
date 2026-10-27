@@ -42,6 +42,14 @@ on:
           - greenforce-project/greenforce_clang
           - Neutron-Toolchains/antman
         default: greenforce-project/greenforce_clang
+      deepsleep_tuning:
+        description: "Enhance Deep Sleep ?"
+        required: true
+        type: choice
+        default: "Disabled"
+        options:
+          - "Enabled"
+          - "Disabled"
       droidspaces_support: 
        description: "Add droidspaces proper support?"
        required: true
@@ -70,14 +78,7 @@ on:
           - Disabled
           - Enabled
         default: Disabled
-      deepsleep_tuning:
-        description: "Bake Deep Sleep (VM tunables) ke kernel?"
-        required: true
-        type: choice
-        default: "Disabled"
-        options:
-          - "Enabled"
-          - "Disabled"
+            
                           
 jobs:
   build-kernels:
