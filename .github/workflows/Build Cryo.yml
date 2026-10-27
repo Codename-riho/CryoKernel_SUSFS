@@ -626,7 +626,7 @@ jobs:
 
           echo "🎉 Inject Reflex Governor setup complete!"
 
-      - name: 'Inject Vorpal Governor + GKI510 Compat'
+      - name: '⚙️ Inject Vorpal Governor + GKI510 Compat'
         if: github.event.inputs.gaming_mode == 'Enabled'
         shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -673,7 +673,7 @@ jobs:
 
           echo "✅ Vorpal governor + GKI510 compat terpasang"
 
-      - name: 'Fix Vorpal Input-Handler Init Bug'
+      - name: '⚙️ Fix Vorpal Input-Handler Init Bug'
         if: github.event.inputs.gaming_mode == 'Enabled'
         shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -706,7 +706,7 @@ jobs:
             exit 1
           fi
 
-      - name: 'Inject Vorpal Gaming-Mode Bias into fair.c'
+      - name: '⚙️ Inject Vorpal Gaming-Mode Bias into fair.c'
         if: github.event.inputs.gaming_mode == 'Enabled'
         shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -1186,7 +1186,7 @@ jobs:
 
           echo "✅ CPU Governor berhasil disetel ke 'walt' pada file $DEFCONFIG_NAME!"
 
-      - name: "💤 Enhance Deep Sleep"
+      - name: "😴 Enhance Deep Sleep"
         if: github.event.inputs.deepsleep_tuning == 'Enabled'
         shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
