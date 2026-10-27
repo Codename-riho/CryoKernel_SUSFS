@@ -511,25 +511,58 @@ jobs:
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
-      - name: "🚄 Apply BBRv3 + PLB"
+      - name: "🚄 Porting BBRv3 + PLB (cherry-pick)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           BBR3_SHA: 7bc9793d909f52f4a6cd45dd1381b2f200c18a7c
+          BBR3_REPO: https://github.com/topnotchfreaks/kernel_msm-5.15.git
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 -o /tmp/bbr3.patch \
-            "https://github.com/topnotchfreaks/kernel_msm-5.15/commit/${BBR3_SHA}.patch"
+          DEFCFG=arch/arm64/configs/unified_defconfig
 
-          OPTS="--exclude=arch/arm64/configs/unified_defconfig --ignore-whitespace --whitespace=nowarn"
-          if ! git apply --check $OPTS /tmp/bbr3.patch; then
-            echo "::error::Patch BBRv3 tidak cocok dengan ${KERNEL_BRANCH} (lihat hunk yang gagal di atas)"
+          echo "🔄 Menyiapkan Git untuk Porting"
+          git config user.name  "github-actions"
+          git config user.email "actions@github.com"
+          git config advice.mergeConflict false
+          git config advice.detachedHead false
+
+          # Simpan perubahan step sebelumnya sebagai commit sementara.
+          # Saat keluar (sukses/gagal) HEAD dikembalikan ke semula, perubahan tetap ada di working tree.
+          BASE=$(git rev-parse HEAD)
+          trap 'git reset -q --mixed "$BASE" || true' EXIT
+          git add -A
+          git commit -q --allow-empty --no-verify -m "wip: snapshot sebelum porting BBRv3"
+
+          echo "📥 Mengambil BBRv3 dari repositori pihak ketiga"
+          git fetch -q --no-tags --depth=2 "$BBR3_REPO" "$BBR3_SHA"
+
+          echo "⚙️ Melakukan Cherry-Pick BBRv3"
+          # -n: tanpa commit. Konflik defconfig di GKI diharapkan (file itu tidak ada di sana).
+          git cherry-pick -n "$BBR3_SHA" >/tmp/bbr3-pick.log 2>&1 || true
+          grep -E 'CONFLICT|Auto-merging' /tmp/bbr3-pick.log | sed 's/^/  /' || true
+
+          # defconfig tidak dipakai (config diatur lewat scripts/config): kembalikan ke keadaan HEAD
+          if git cat-file -e "HEAD:$DEFCFG" 2>/dev/null; then
+            git checkout -q HEAD -- "$DEFCFG"
+          else
+            git rm -f -q --ignore-unmatch -- "$DEFCFG"
+          fi
+
+          # Konflik yang tersisa = konflik sungguhan: batalkan porting, tampilkan daftar file
+          UNMERGED=$(git diff --name-only --diff-filter=U || true)
+          if [ -n "$UNMERGED" ]; then
+            echo "::error::Porting BBRv3 gagal, konflik pada file berikut:"
+            echo "$UNMERGED" | sed 's/^/  - /'
+            git reset -q --hard HEAD     # kembali ke snapshot (perubahan step sebelumnya tetap aman)
             exit 1
           fi
-          git apply -v $OPTS /tmp/bbr3.patch
 
           for f in net/ipv4/tcp_bbr3.c net/ipv4/tcp_plb.c; do
-            [ -f "$f" ] || { echo "::error::$f tidak terbentuk"; exit 1; }
+            [ -f "$f" ] || { echo "::error::$f tidak terbentuk setelah cherry-pick"; exit 1; }
           done
+          if git grep -nE '^(<<<<<<<|>>>>>>>) ' -- net include >/dev/null 2>&1; then
+            echo "::error::masih ada penanda konflik di net/ atau include/"; exit 1
+          fi
           echo "✅ BBRv3 + PLB terpasang"
         
       - name: "🏷️ Force short localversion"
@@ -969,7 +1002,7 @@ jobs:
         env:
           SUSFS_COMMIT: ${{ inputs.susfs_commit }}
           SUSFS_BRANCH: gki-android13-5.15
-          SUSFS_URL: https://gitlab.com/simonpunk/susfs4ksu.git
+          SUSFS_URL: https://github.com/Codename-riho/Kernel_builder.git
         run: |
           echo "📦 Menyiapkan repositori SUSFS4KSU..."
           clone_susfs() {
