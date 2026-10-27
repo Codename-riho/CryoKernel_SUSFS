@@ -42,6 +42,14 @@ on:
           - greenforce-project/greenforce_clang
           - Neutron-Toolchains/antman
         default: greenforce-project/greenforce_clang
+      deepsleep_tuning:
+        description: "Enhance Deep Sleep (tuning VM writeback/cache)?"
+        required: true
+        type: choice
+        default: "Enabled"
+        options:
+          - "Enabled"
+          - "Disabled"
       droidspaces_support: 
        description: "Add droidspaces proper support?"
        required: true
@@ -1221,6 +1229,206 @@ jobs:
 
           echo "✅ CPU Governor berhasil disetel ke 'walt' pada file $DEFCONFIG_NAME!"
 
+      - name: "💤 Enhance Deep Sleep"
+        if: github.event.inputs.deepsleep_tuning == 'Enabled'
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          DS_DELAY_SEC: 90          # jeda setelah boot sebelum nilai diterapkan (setelah init.rc/HAL selesai menulis)
+          DS_REAPPLY_SEC: 0         # 0 = sekali saja; mis. 600 = terapkan ulang tiap 10 menit (deferrable)
+          DS_STAT_SEC: 10           # vmstat interval (detik)
+          DS_DIRTY_WB_CS: 3000      # dirty_writeback_centisecs (3000 = 30 dtk, default 500)
+          DS_DIRTY_EXP_CS: 3000     # dirty_expire_centisecs (3000 = 30 dtk)
+          DS_LAPTOP_MODE: 0         # 0 = mati (disarankan); 1 = aktif
+          DS_VFS_CACHE: 50          # vfs_cache_pressure (default 100)
+          DS_DIRTY_BG_RATIO: 20     # dirty_background_ratio, harus < DS_DIRTY_RATIO
+          DS_DIRTY_RATIO: 40        # dirty_ratio
+        run: |
+          set -euo pipefail
+
+          echo "::group::🛠️ Validasi input & deteksi simbol"
+
+          # 1) Validasi input: check_num NAMA MIN MAX
+          check_num() {
+            local v="${!1}"
+            case "$v" in ''|*[!0-9]*) echo "::error::$1 harus angka bulat (sekarang: '$v')"; exit 1 ;; esac
+            if [ "$v" -lt "$2" ] || [ "$v" -gt "$3" ]; then
+              echo "::error::$1=$v di luar rentang $2..$3"; exit 1
+            fi
+          }
+          check_num DS_DELAY_SEC       1 3600
+          check_num DS_STAT_SEC        1 3600
+          check_num DS_DIRTY_WB_CS     1 360000     # centisecond (3000 = 30 detik)
+          check_num DS_DIRTY_EXP_CS    1 360000
+          check_num DS_LAPTOP_MODE     0 1
+          check_num DS_VFS_CACHE       1 1000
+          check_num DS_DIRTY_BG_RATIO  1 90
+          check_num DS_DIRTY_RATIO     1 90
+          check_num DS_REAPPLY_SEC     0 86400      # 0 = terapkan sekali saja
+          if [ "$DS_DIRTY_BG_RATIO" -ge "$DS_DIRTY_RATIO" ]; then
+            echo "::error::DS_DIRTY_BG_RATIO ($DS_DIRTY_BG_RATIO) harus lebih kecil dari DS_DIRTY_RATIO ($DS_DIRTY_RATIO)"; exit 1
+          fi
+          [ -d kernel/power ] && [ -f kernel/power/Makefile ] \
+            || { echo "::error::kernel/power atau kernel/power/Makefile tidak ditemukan"; exit 1; }
+
+          # 2) Deteksi simbol (nama sesuai kernel 5.15; hasilnya 1/0)
+          has() {      # has SIMBOL FILE...   -> kata utuh ada di salah satu file
+            grep -qw -- "$1" "${@:2}" 2>/dev/null && echo 1 || echo 0
+          }
+          has_int() {  # has_int SIMBOL FILE... -> 'int SIMBOL' non-static (definisi/extern), aman untuk di-extern
+            grep -qE "^[[:space:]]*(extern[[:space:]]+)?int[[:space:]]+$1\b" "${@:2}" 2>/dev/null && echo 1 || echo 0
+          }
+          WBH=include/linux/writeback.h
+          HAS_STAT=$(has_int sysctl_stat_interval mm/vmstat.c include/linux/vmstat.h)
+          HAS_VFS=$(has_int sysctl_vfs_cache_pressure fs/dcache.c include/linux/dcache.h)
+          HAS_WB=$(has dirty_writeback_interval $WBH)
+          HAS_EXP=$(has dirty_expire_interval $WBH)
+          HAS_LAPTOP=$(has laptop_mode $WBH)
+          HAS_BG_RATIO=$(has dirty_background_ratio $WBH)     # BUKAN vm_dirty_background_ratio
+          HAS_RATIO=$(has vm_dirty_ratio $WBH)
+          HAS_RATELIMIT=$(has writeback_set_ratelimit $WBH)
+          HAS_BYTES=$(( $(has dirty_background_bytes $WBH) * $(has vm_dirty_bytes $WBH) ))
+
+          echo "Simbol -> stat:$HAS_STAT wb:$HAS_WB exp:$HAS_EXP laptop:$HAS_LAPTOP vfs:$HAS_VFS bg:$HAS_BG_RATIO ratio:$HAS_RATIO ratelimit:$HAS_RATELIMIT bytes:$HAS_BYTES"
+
+          skip_note() { [ "$2" = 1 ] || echo "::warning::$1 DILEWATI: simbol tidak ditemukan di kernel tree ini"; }
+          skip_note stat_interval  "$HAS_STAT"
+          skip_note vfs_cache      "$HAS_VFS"
+          skip_note writeback      "$HAS_WB"
+          skip_note expire         "$HAS_EXP"
+          skip_note laptop_mode    "$HAS_LAPTOP"
+          skip_note dirty_bg_ratio "$HAS_BG_RATIO"
+          skip_note dirty_ratio    "$HAS_RATIO"
+
+          if [ $((HAS_STAT + HAS_WB + HAS_EXP + HAS_VFS + HAS_BG_RATIO + HAS_RATIO + HAS_LAPTOP)) -eq 0 ]; then
+            echo "::warning::Tidak ada tunable VM yang kompatibel, modul tidak dipasang."
+            echo "::endgroup::"; exit 0
+          fi
+
+          # 3) Header konfigurasi (nilai dari env, flag dari deteksi)
+          cat > kernel/power/cryo_deepsleep_conf.h << EOF
+          #ifndef CRYO_DEEPSLEEP_CONF_H
+          #define CRYO_DEEPSLEEP_CONF_H
+
+          #define CRYO_DELAY_SEC     ${DS_DELAY_SEC}
+          #define CRYO_REAPPLY_SEC   ${DS_REAPPLY_SEC}
+          #define CRYO_STAT_SEC      ${DS_STAT_SEC}
+          #define CRYO_DIRTY_WB_CS   ${DS_DIRTY_WB_CS}
+          #define CRYO_DIRTY_EXP_CS  ${DS_DIRTY_EXP_CS}
+          #define CRYO_LAPTOP_MODE   ${DS_LAPTOP_MODE}
+          #define CRYO_VFS_CACHE     ${DS_VFS_CACHE}
+          #define CRYO_BG_RATIO      ${DS_DIRTY_BG_RATIO}
+          #define CRYO_RATIO         ${DS_DIRTY_RATIO}
+
+          #define CRYO_HAS_STAT      ${HAS_STAT}
+          #define CRYO_HAS_WB        ${HAS_WB}
+          #define CRYO_HAS_EXP       ${HAS_EXP}
+          #define CRYO_HAS_LAPTOP    ${HAS_LAPTOP}
+          #define CRYO_HAS_VFS       ${HAS_VFS}
+          #define CRYO_HAS_BG_RATIO  ${HAS_BG_RATIO}
+          #define CRYO_HAS_RATIO     ${HAS_RATIO}
+          #define CRYO_HAS_RATELIMIT ${HAS_RATELIMIT}
+          #define CRYO_HAS_BYTES     ${HAS_BYTES}
+
+          #endif
+          EOF
+
+          # 4) Source modul
+          cat > kernel/power/cryo_deepsleep.c << 'EOF'
+          // SPDX-License-Identifier: GPL-2.0-only
+          #define pr_fmt(fmt) "cryo_deepsleep: " fmt
+
+          #include <linux/init.h>
+          #include <linux/kernel.h>
+          #include <linux/jiffies.h>
+          #include <linux/workqueue.h>
+          #include <linux/writeback.h>
+          #include <linux/dcache.h>
+
+          #include "cryo_deepsleep_conf.h"
+
+          #if CRYO_HAS_STAT
+          extern int sysctl_stat_interval;
+          #endif
+          #if CRYO_HAS_VFS
+          extern int sysctl_vfs_cache_pressure;
+          #endif
+
+          static bool cryo_logged;
+
+          static void cryo_deepsleep_apply(struct work_struct *work)
+          {
+          #if CRYO_HAS_STAT
+          	sysctl_stat_interval = CRYO_STAT_SEC * HZ;
+          #endif
+          #if CRYO_HAS_WB
+          	dirty_writeback_interval = CRYO_DIRTY_WB_CS;
+          #endif
+          #if CRYO_HAS_EXP
+          	dirty_expire_interval = CRYO_DIRTY_EXP_CS;
+          #endif
+          #if CRYO_HAS_LAPTOP
+          	laptop_mode = CRYO_LAPTOP_MODE;
+          #endif
+          #if CRYO_HAS_VFS
+          	sysctl_vfs_cache_pressure = CRYO_VFS_CACHE;
+          #endif
+          #if CRYO_HAS_BG_RATIO
+          	dirty_background_ratio = CRYO_BG_RATIO;
+          #if CRYO_HAS_BYTES
+          	dirty_background_bytes = 0;	/* rasio hanya dipakai bila *_bytes = 0 */
+          #endif
+          #endif
+          #if CRYO_HAS_RATIO
+          	vm_dirty_ratio = CRYO_RATIO;
+          #if CRYO_HAS_BYTES
+          	vm_dirty_bytes = 0;
+          #endif
+          #endif
+          #if CRYO_HAS_RATELIMIT && (CRYO_HAS_BG_RATIO || CRYO_HAS_RATIO)
+          	writeback_set_ratelimit();	/* hitung ulang batas throttle, seperti handler sysctl */
+          #endif
+
+          	if (!cryo_logged) {
+          		pr_info("deep sleep tunables applied\n");
+          		cryo_logged = true;
+          	}
+          #if CRYO_REAPPLY_SEC > 0
+          	/* deferrable: tidak membangunkan CPU dari idle hanya untuk ini */
+          	schedule_delayed_work(to_delayed_work(work), CRYO_REAPPLY_SEC * HZ);
+          #endif
+          }
+
+          static DECLARE_DEFERRABLE_WORK(cryo_deepsleep_work, cryo_deepsleep_apply);
+
+          static int __init cryo_deepsleep_init(void)
+          {
+          	schedule_delayed_work(&cryo_deepsleep_work, CRYO_DELAY_SEC * HZ);
+          	return 0;
+          }
+          late_initcall(cryo_deepsleep_init);
+          EOF
+
+          # 5) Pasang ke build (idempoten)
+          if ! grep -q 'cryo_deepsleep.o' kernel/power/Makefile; then
+            printf '\n# Cryo Deep Sleep Module\nobj-y += cryo_deepsleep.o\n' >> kernel/power/Makefile
+          fi
+          echo "::endgroup::"
+
+          # 6) Laporan (juga ke Step Summary) - yang di-skip terlihat jelas
+          st() { [ "$1" = 1 ] && echo "$2" || echo "SKIP (simbol tidak ada)"; }
+          {
+            echo "### 💤 Cryo Deep Sleep"
+            echo "- Writeback interval : $(st "$HAS_WB" "${DS_DIRTY_WB_CS} cs")"
+            echo "- Expire interval    : $(st "$HAS_EXP" "${DS_DIRTY_EXP_CS} cs")"
+            echo "- Stat interval      : $(st "$HAS_STAT" "${DS_STAT_SEC} s")"
+            echo "- VFS cache pressure : $(st "$HAS_VFS" "${DS_VFS_CACHE}")"
+            echo "- Dirty BG ratio     : $(st "$HAS_BG_RATIO" "${DS_DIRTY_BG_RATIO}%")"
+            echo "- Dirty ratio        : $(st "$HAS_RATIO" "${DS_DIRTY_RATIO}%")"
+            echo "- Laptop mode        : $(st "$HAS_LAPTOP" "${DS_LAPTOP_MODE}")"
+            echo "- Diterapkan         : ${DS_DELAY_SEC}s setelah boot; ulang tiap ${DS_REAPPLY_SEC}s (0 = sekali)"
+          } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"background: 
+
       - name: "🧱 Rootfs glibc untuk binary AOSP"
         if: github.event.inputs.toolchain_type == 'android-tools'
         run: |
@@ -1311,7 +1519,7 @@ jobs:
                                   
       - name: "🚨 Kumpulkan Log Error (Jika Gagal)"
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: error-logs-${{ matrix.kernel.name }}
           path: |
