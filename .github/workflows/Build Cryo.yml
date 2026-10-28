@@ -414,6 +414,7 @@ jobs:
             -e CONFIG_TMPFS_XATTR \
             -e CONFIG_TMPFS_POSIX_ACL \
             -e CONFIG_WQ_POWER_EFFICIENT_DEFAULT \
+            -e CONFIG_BOEFFLA_WL_BLOCKER \
             -e CONFIG_PM_WAKELOCKS \
             --set-val CONFIG_PM_WAKELOCKS_LIMIT 100 \
             -e CONFIG_PM_WAKELOCKS_GC \
@@ -430,7 +431,9 @@ jobs:
             -d CONFIG_ZRAM_DEF_COMP_842 \
             -d CONFIG_KERNEL_BZIP2 \
             -d CONFIG_KERNEL_UNCOMPRESSED \
-            -d CONFIG_KPROFILES
+            -d CONFIG_KPROFILES \
+            -e CONFIG_MACH_XIAOMI_TOPAZ \
+            -e CONFIG_I2C_MSM_GENI
           
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
