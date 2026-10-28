@@ -22,7 +22,7 @@ on:
         description: "Kernel branch"
         required: true
         type: string
-        default: "android13-5.15-lts"
+        default: "cryo_gki"
       kernelDevice:
         description: "Device (used for defconfig)"
         required: true
