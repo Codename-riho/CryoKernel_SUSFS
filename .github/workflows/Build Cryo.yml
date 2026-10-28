@@ -558,6 +558,11 @@ jobs:
                     IP_SET IP_SET_HASH_IP IP_SET_HASH_NET NETFILTER_XT_SET
                     TMPFS_POSIX_ACL TMPFS_XATTR"
           [ "${DS_OPTIONAL_FEATURES:-true}" = "true" ] || OPTIONAL=""
+          # GKI/CLO normal: jangan aktifkan lagi IPv6 NAT (dilarang VINTF)
+          if [ "${NO_IP6_NAT:-0}" = 1 ]; then
+            OPTIONAL="${OPTIONAL//IP6_NF_NAT/}"
+            OPTIONAL="${OPTIONAL//IP6_NF_TARGET_MASQUERADE/}"
+          fi
 
           for o in $REQUIRED $OPTIONAL; do
             scripts/config --file "$CFG" -e "CONFIG_$o"
@@ -1508,6 +1513,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: "🧩 Ringkasan konfigurasi kernel"
+        run: |
+          VARIANTS=$(ls ./artifacts | grep -- '-kernel$' | sed 's/-kernel$//' | paste -sd, - | sed 's/,/, /g')
+          {
+            echo "### 🧩 Kernel Configuration"
+            echo "✅ Konfigurasi berhasil diterapkan: ${VARIANTS}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          
       - name: "📥 Download kernel artifacts"
         uses: actions/download-artifact@v8
         with:
