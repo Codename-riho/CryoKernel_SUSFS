@@ -693,7 +693,7 @@ jobs:
           KPM_STATE=""
           if [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ]; then
             echo "Mengaktifkan CONFIG_KPM..."
-            scripts/config --file "$CONFIG_PATH" -e CONFIG_KPM
+            scripts/config --file "$CONFIG_PATH" -e CONFIG_KPM -e CONFIG_KALLSYMS_ALL
             KPM_STATE="aktif"
           else
             echo "ℹ️ KPM dilewati (hanya untuk varian SukiSU-Ultra+KPM)."
@@ -737,7 +737,7 @@ jobs:
             done
             return 1
           }
-          clone_susfs || { echo "::error::Gagal clone/checkout SUSFS4KSU"; exit 1; }
+          clone_susfs || { echo "::error::Gagal clone/checkout SUSFS4KSU"; echo "❌ Inject SUSFS Integration failed" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
           SUSFS_HEAD=$(git -C susfs4ksu rev-parse --short HEAD)
           echo "SUSFS4KSU @ $SUSFS_HEAD"
 
@@ -793,6 +793,7 @@ jobs:
             echo "✅ SUSFS patch successfully applied"
           else
             echo "⚠️ SUSFS patch failed — copying files manually"
+            SUSFS_OK=0
           fi
                  
           echo "💉 Applying SUSFS -> KernelSU patch..."
@@ -820,7 +821,7 @@ jobs:
           
           echo "🔍 Verifying SUSFS files..."
           for f in fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h; do
-            if [ -f "$f" ]; then echo "✔ Found: $f"; else echo "❌ Missing: $f"; fi
+            if [ -f "$f" ]; then echo "✔ Found: $f"; else echo "❌ Missing: $f"; [ "$f" = include/linux/susfs_def.h ] || SUSFS_OK=0; fi
           done
           
           # Clean up SUSFS repo (we only needed kernel patches, not KSU integration)
@@ -876,7 +877,13 @@ jobs:
           
           echo "🎉 SUSFS Integration setup complete!"
           
-
+          if [ "${SUSFS_OK:-1}" = 1 ]; then
+            echo "✅ Inject SUSFS Integration sukses" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Inject SUSFS Integration failed"
+            echo "❌ Inject SUSFS Integration failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          
       - name: "🔗 Cek simbol hook SUSFS dan KSU"
         if: matrix.variant == 'ksu' && github.event.inputs.susfsSupport == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -1087,6 +1094,7 @@ jobs:
            echo "Build tools recorded:"
            cat out/dist/build_tools.txt || true
            
+           
 
       - name: "📤 Upload kernel artifact"
         uses: actions/upload-artifact@v7
@@ -1176,8 +1184,9 @@ jobs:
           |   • Metamodule Nomount built-in Support             |
           |   • Baseband-guard v1 Support                       |
           |                                                     |
-          |  * SNOWBOUND EXTRAS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ |
-          |   • Droidspaces Support (kABI-safe patches)         |
+          |  * Additional features if activated ~~~~~~~~~~~~~~~ |
+          |   • Droidspaces Support                             |
+          |   (kABI-safe and Defconfig patches)                 |
           |                                                     |
           +--------------------- * - + - * ---------------------+
           |                                                     |
@@ -1188,7 +1197,6 @@ jobs:
           |               Cold. Sharp. Unyielding.              |
           |              Powered by GitHub Actions              |
           +--------------------- * - + - * ---------------------+
-          Installing Cryo Kernel...
           Installing Cryo Kernel...
           EOF
 
