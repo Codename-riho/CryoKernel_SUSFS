@@ -17,7 +17,7 @@ on:
         description: "Kernel source URL"
         required: true
         type: string
-        default: "https://android.googlesource.com/kernel/common"
+        default: "https://github.com/Codename-riho/Kernel_builder.git"
       kernelBranch:
         description: "Kernel branch"
         required: true
