@@ -42,14 +42,6 @@ on:
           - greenforce-project/greenforce_clang
           - Neutron-Toolchains/antman
         default: greenforce-project/greenforce_clang
-      deepsleep_tuning:
-        description: "Enhance Deep Sleep ?"
-        required: true
-        type: choice
-        default: "Disabled"
-        options:
-          - "Enabled"
-          - "Disabled"
       droidspaces_support: 
        description: "Add droidspaces proper support?"
        required: true
@@ -71,13 +63,6 @@ on:
         required: false
         type: string
         default: ""
-      gaming_mode:
-        description: "Gaming mode: Enabled = sertakan Vorpal governor + bias scheduler (fair.c); Disabled = kernel standar"
-        type: choice
-        options:
-          - Disabled
-          - Enabled
-        default: Disabled
             
                           
 jobs:
@@ -592,185 +577,6 @@ jobs:
           done
 
           echo "✅ Droidspaces: patch kABI + defconfig siap (kernel $KVER.$KPL)"
-
-      - name: "🛡️ Guard VINTF"
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          set -euo pipefail
-          CFG="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          for o in IP6_NF_NAT IP6_NF_TARGET_MASQUERADE; do
-            scripts/config --file "$CFG" -d "CONFIG_$o"
-            if grep -Eq "^CONFIG_${o}=(y|m)" "$CFG"; then
-              echo "::error::CONFIG_${o} masih aktif"; exit 1
-            fi
-          done
-
-      - name: '⚙️ Inject Reflex Governor'
-        if: github.event.inputs.gaming_mode == 'Enabled'
-        shell: bash
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          REFLEX_REPO: kusonekoworld-max/KonekoKernel-GKI
-          REFLEX_REF: refs/heads/main   # ganti ke commit SHA agar build reproducible
-        run: |
-          set -euo pipefail
-          # Unduh aman: gagal jika 404/kosong, tampilkan sha256 (untuk pinning)
-          fetch_src() {
-            curl -fsSL --retry 3 --retry-delay 5 -o "$2" "$1" \
-              || { echo "::error::Gagal mengunduh $1"; exit 1; }
-            [ -s "$2" ] || { echo "::error::File kosong: $2"; exit 1; }
-            echo "sha256 $(sha256sum "$2" | cut -d' ' -f1)  $2"
-          }
-
-          mkdir -p kernel/sched
-          fetch_src "https://raw.githubusercontent.com/${REFLEX_REPO}/${REFLEX_REF}/.github/actions/build-kernel/patches/reflex/cpufreq_reflex.c" \
-            kernel/sched/cpufreq_reflex.c
-
-          if ! grep -q "cpufreq_reflex.o" "kernel/sched/Makefile"; then
-            echo 'obj-$(CONFIG_CPU_FREQ_GOV_REFLEX) += cpufreq_reflex.o' >> "kernel/sched/Makefile"
-          fi
-
-          if ! grep -q "config CPU_FREQ_GOV_REFLEX" "drivers/cpufreq/Kconfig"; then
-            printf "\nconfig CPU_FREQ_GOV_REFLEX\n" >> "drivers/cpufreq/Kconfig"
-            printf "\ttristate \"'reflex' cpufreq governor\"\n" >> "drivers/cpufreq/Kconfig"
-            printf "\tdepends on CPU_FREQ && SMP\n" >> "drivers/cpufreq/Kconfig"
-            printf "\tselect CPU_FREQ_GOV_ATTR_SET\n" >> "drivers/cpufreq/Kconfig"
-            printf "\thelp\n" >> "drivers/cpufreq/Kconfig"
-            printf "\t  'reflex' is an advanced CPU frequency governor based on schedutil,\n" >> "drivers/cpufreq/Kconfig"
-            printf "\t  featuring idle-time accounting and PELT-complementary exponential decay.\n" >> "drivers/cpufreq/Kconfig"
-          fi
-
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          if [ -f "$CONFIG_FILE" ]; then
-            if ! grep -q "CONFIG_CPU_FREQ_GOV_REFLEX" "$CONFIG_FILE"; then
-              echo "CONFIG_CPU_FREQ_GOV_REFLEX=y" >> "$CONFIG_FILE"
-            fi
-          fi
-
-          echo "🎉 Inject Reflex Governor setup complete!"
-
-      - name: '⚙️ Inject Vorpal Governor + GKI510 Compat'
-        if: github.event.inputs.gaming_mode == 'Enabled'
-        shell: bash
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          VORPAL_REPO: yougotme101/KonekoKernel-GKI
-          VORPAL_REF: refs/heads/main   # ganti ke commit SHA agar build reproducible
-        run: |
-          set -euo pipefail
-          # Unduh aman: gagal jika 404/kosong, tampilkan sha256 (untuk pinning)
-          fetch_src() {
-            curl -fsSL --retry 3 --retry-delay 5 -o "$2" "$1" \
-              || { echo "::error::Gagal mengunduh $1"; exit 1; }
-            [ -s "$2" ] || { echo "::error::File kosong: $2"; exit 1; }
-            echo "sha256 $(sha256sum "$2" | cut -d' ' -f1)  $2"
-          }
-
-          mkdir -p kernel/sched
-          VBASE="https://raw.githubusercontent.com/${VORPAL_REPO}/${VORPAL_REF}/.github/actions/build-kernel/patches/vorpal"
-          fetch_src "$VBASE/cpufreq_vorpal.c"      kernel/sched/cpufreq_vorpal.c
-          fetch_src "$VBASE/rfx_gki510_compat.c"   kernel/sched/rfx_gki510_compat.c
-
-          if ! grep -q "cpufreq_vorpal.o" "kernel/sched/Makefile"; then
-            echo 'obj-$(CONFIG_CPU_FREQ_GOV_VORPAL) += cpufreq_vorpal.o' >> "kernel/sched/Makefile"
-          fi
-
-          if ! grep -q "rfx_gki510_compat.o" "kernel/sched/Makefile"; then
-            echo 'obj-y += rfx_gki510_compat.o' >> "kernel/sched/Makefile"
-          fi
-
-          if ! grep -q "config CPU_FREQ_GOV_VORPAL" "drivers/cpufreq/Kconfig"; then
-            printf "\nconfig CPU_FREQ_GOV_VORPAL\n" >> "drivers/cpufreq/Kconfig"
-            printf "\ttristate \"'vorpal' cpufreq governor\"\n" >> "drivers/cpufreq/Kconfig"
-            printf "\tdepends on CPU_FREQ && SMP\n" >> "drivers/cpufreq/Kconfig"
-            printf "\tselect CPU_FREQ_GOV_ATTR_SET\n" >> "drivers/cpufreq/Kconfig"
-            printf "\thelp\n" >> "drivers/cpufreq/Kconfig"
-            printf "\t  'vorpal' is a schedutil-based governor tuned for\n" >> "drivers/cpufreq/Kconfig"
-            printf "\t  gaming/thermal-aware dual-profile operation.\n" >> "drivers/cpufreq/Kconfig"
-          fi
-
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          if [ -f "$CONFIG_FILE" ] && ! grep -q "CONFIG_CPU_FREQ_GOV_VORPAL" "$CONFIG_FILE"; then
-            echo "CONFIG_CPU_FREQ_GOV_VORPAL=y" >> "$CONFIG_FILE"
-          fi
-
-          echo "✅ Vorpal governor + GKI510 compat terpasang"
-
-      - name: '⚙️ Fix Vorpal Input-Handler Init Bug'
-        if: github.event.inputs.gaming_mode == 'Enabled'
-        shell: bash
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          set -euo pipefail
-          VORPAL_C="kernel/sched/cpufreq_vorpal.c"
-
-          if ! grep -q "bool input_ok;" "$VORPAL_C"; then
-           perl -0pi -e 's{(static int __init vorpal_gov_init\(void\)\n\{\n\tint ret;\n)}{$1\tbool input_ok;\n}' "$VORPAL_C"
-          fi
-
-          if ! grep -q "input_ok = !input_register_handler" "$VORPAL_C"; then
-            perl -0pi -e 's{\tif \(input_register_handler\(&rfx_input_handler\)\)\n\t\tpr_warn\("vorpal: input handler register failed \(touch boost off\)\\n"\);}{\tinput_ok = !input_register_handler(&rfx_input_handler);\n\tif (!input_ok)\n\t\tpr_warn("vorpal: input handler register failed (touch boost off)\\n");}' "$VORPAL_C"
-          fi
-
-          if ! grep -q "if (input_ok)" "$VORPAL_C"; then
-            perl -0pi -e 's{\tret = cpufreq_register_governor\(&vorpal_gov\);\n\tif \(ret\) \{\n\t\tinput_unregister_handler\(&rfx_input_handler\);\n\t\tcancel_delayed_work_sync\(&rfx_thermal_work\);\n\t\}}{\tret = cpufreq_register_governor(&vorpal_gov);\n\tif (ret) \{\n\t\tif (input_ok)\n\t\t\tinput_unregister_handler(&rfx_input_handler);\n\t\tcancel_delayed_work_sync(&rfx_thermal_work);\n\t\}}' "$VORPAL_C"
-          fi
-
-          if ! grep -q "bool input_ok;" "$VORPAL_C"; then
-            echo "ERROR: failed to inject 'bool input_ok;' into vorpal_gov_init()" >&2
-            exit 1
-          fi
-          if ! grep -q "input_ok = !input_register_handler" "$VORPAL_C"; then
-            echo "ERROR: failed to patch input_register_handler() call in vorpal_gov_init()" >&2
-            exit 1
-          fi
-          if ! grep -q "if (input_ok)" "$VORPAL_C"; then
-            echo "ERROR: failed to guard input_unregister_handler() in vorpal_gov_init() error path" >&2
-            exit 1
-          fi
-
-      - name: '⚙️ Inject Vorpal Gaming-Mode Bias into fair.c'
-        if: github.event.inputs.gaming_mode == 'Enabled'
-        shell: bash
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          set -euo pipefail
-          FAIR_C="kernel/sched/fair.c"
-          cp "$FAIR_C" "$FAIR_C.orig"   # cadangan untuk rollback bila ada pola yang tidak cocok
-
-          if ! grep -q "extern int sched_gaming_active;" "$FAIR_C"; then
-            perl -0pi -e 's{(static unsigned int normalized_sysctl_sched_latency\s*=\s*6000000ULL;)}{$1\n\nextern int sched_gaming_active;\n\n#define GAMING_VRUNTIME_STRETCH\t\t4\n}' "$FAIR_C"
-          fi
-
-          if ! grep -q "GAMING_VRUNTIME_STRETCH - 1" "$FAIR_C"; then
-            perl -0pi -e 's{(\tcurr->vruntime \+= calc_delta_fair\(delta_exec, curr\);\n)(\tupdate_min_vruntime\(cfs_rq\);\n)}{$1\n\tif (unlikely(sched_gaming_active \&\& !entity_is_task(curr))) {\n\t\tcurr->vruntime += calc_delta_fair(delta_exec * (GAMING_VRUNTIME_STRETCH - 1), curr);\n\t} else if (unlikely(sched_gaming_active \&\& entity_is_task(curr) \&\&\n\t\t\t     curr->avg.load_avg < 100)) {\n\t\tcurr->vruntime += calc_delta_fair(delta_exec, curr);\n\t}\n$2}' "$FAIR_C"
-          fi
-
-          if ! grep -q "ideal_runtime / 2" "$FAIR_C"; then
-            perl -0pi -e 's{(\tdelta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;\n)(\ttrace_android_rvh_check_preempt_tick)}{$1\n\tif (unlikely(sched_gaming_active) \&\& entity_is_task(curr)) {\n\t\tstruct task_struct *p = task_of(curr);\n\n\t\tif (p->static_prio > DEFAULT_PRIO \&\&\n\t\t    delta_exec > ideal_runtime / 2)\n\t\t\tresched_curr(rq_of(cfs_rq));\n\t}\n\n$2}' "$FAIR_C"
-          fi
-
-          if ! grep -q "NSEC_PER_MSEC" "$FAIR_C"; then
-            perl -0pi -e 's{(\tfor_each_sched_entity\(se\) \{\n\t\tcfs_rq = cfs_rq_of\(se\);\n\n)(\t\tupdate_load_avg\(cfs_rq, se, UPDATE_TG\);\n\t\tse_update_runnable\(se\);\n\t\tupdate_cfs_group\(se\);)}{$1\t\tif (unlikely(sched_gaming_active \&\& entity_is_task(se) \&\&\n\t\t\t     task_of(se)->static_prio <= DEFAULT_PRIO))\n\t\t\tse->vruntime -= min_t(u64, se->vruntime, NSEC_PER_MSEC);\n\n$2}' "$FAIR_C"
-          fi
-
-          if ! grep -q "Gaming task isolation" "$FAIR_C"; then
-            perl -0pi -e 's{(\tdelta = rq_clock_task\(env->src_rq\) - p->se\.exec_start;\n\n)(\treturn delta < \(s64\)sysctl_sched_migration_cost;\n\}\n)}{$1\t/* Gaming task isolation */\n\tif (sched_gaming_active) {\n\t\tif (capacity_orig_of(env->dst_cpu) < capacity_orig_of(env->src_cpu) \&\&\n\t\t    task_util(p) > (capacity_orig_of(env->src_cpu) >> 3))\n\t\t\treturn 1;\n\t\treturn delta < (s64)sysctl_sched_migration_cost * 2;\n\t}\n\n$2}' "$FAIR_C"
-          fi
-
-          MISSING=""
-          for MARK in "extern int sched_gaming_active;" "GAMING_VRUNTIME_STRETCH - 1" "ideal_runtime / 2" "NSEC_PER_MSEC" "Gaming task isolation"; do
-            grep -qF "$MARK" "$FAIR_C" || MISSING="$MISSING [$MARK]"
-          done
-
-          if [ -n "$MISSING" ]; then
-            # fair.c tiap tree berbeda (mis. CLO/WALT): jangan biarkan patch setengah jadi
-            mv -f "$FAIR_C.orig" "$FAIR_C"
-            echo "::warning::fair.c gaming bias DILEWATI (pola tidak cocok:$MISSING). Vorpal tetap terpasang tanpa bias scheduler."
-          else
-            rm -f "$FAIR_C.orig"
-            echo "✅ fair.c gaming bias terpasang"
-          fi
           
       - name: "😋 Add BBG & NoMount"
         if: matrix.kernel.enable_ksu == true
@@ -1209,199 +1015,35 @@ jobs:
 
           echo "✅ CPU Governor berhasil disetel ke 'walt' pada file $DEFCONFIG_NAME!"
 
-      - name: "😴 Enhance Deep Sleep"
-        if: github.event.inputs.deepsleep_tuning == 'Enabled'
-        shell: bash
+      - name: "🛡️ Guard VINTF"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          DS_DELAY_SEC: 60          # jeda setelah boot sebelum nilai diterapkan (setelah init.rc/HAL selesai menulis)
-          DS_REAPPLY_SEC: 0         # 0 = sekali saja; mis. 600 = terapkan ulang tiap 10 menit (deferrable)
-          DS_STAT_SEC: 10           # vmstat interval (detik)
-          DS_DIRTY_WB_CS: 3000      # dirty_writeback_centisecs (3000 = 30 dtk, default 500)
-          DS_DIRTY_EXP_CS: 3000     # dirty_expire_centisecs (3000 = 30 dtk)
-          DS_LAPTOP_MODE: 0         # 0 = mati (disarankan); 1 = aktif
-          DS_VFS_CACHE: 50          # vfs_cache_pressure (default 100)
-          DS_DIRTY_BG_RATIO: 20     # dirty_background_ratio, harus < DS_DIRTY_RATIO
-          DS_DIRTY_RATIO: 40        # dirty_ratio
         run: |
           set -euo pipefail
 
-          echo "::group::🛠️ Validasi input & deteksi simbol"
+          CFG="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          FORBIDDEN=(IP6_NF_NAT IP6_NF_TARGET_MASQUERADE)
+          failed=()
 
-          # 1) Validasi input: check_num NAMA MIN MAX
-          check_num() {
-            local v="${!1}"
-            case "$v" in ''|*[!0-9]*) echo "::error::$1 harus angka bulat (sekarang: '$v')"; exit 1 ;; esac
-            if [ "$v" -lt "$2" ] || [ "$v" -gt "$3" ]; then
-              echo "::error::$1=$v di luar rentang $2..$3"; exit 1
+          [ -f "$CFG" ] || { echo "::error::Defconfig tidak ditemukan: $CFG"; exit 1; }
+
+          echo "::group::🔍 Guard VINTF ($CFG)"
+          for o in "${FORBIDDEN[@]}"; do
+            scripts/config --file "$CFG" -d "CONFIG_${o}"
+            if grep -Eq "^CONFIG_${o}=(y|m)" "$CFG"; then
+              echo "  ❌ CONFIG_${o} masih aktif"
+              failed+=("CONFIG_${o}")
+            else
+              echo "  ✅ CONFIG_${o} nonaktif"
             fi
-          }
-          check_num DS_DELAY_SEC       1 3600
-          check_num DS_STAT_SEC        1 3600
-          check_num DS_DIRTY_WB_CS     1 360000     # centisecond (3000 = 30 detik)
-          check_num DS_DIRTY_EXP_CS    1 360000
-          check_num DS_LAPTOP_MODE     0 1
-          check_num DS_VFS_CACHE       1 1000
-          check_num DS_DIRTY_BG_RATIO  1 90
-          check_num DS_DIRTY_RATIO     1 90
-          check_num DS_REAPPLY_SEC     0 86400      # 0 = terapkan sekali saja
-          if [ "$DS_DIRTY_BG_RATIO" -ge "$DS_DIRTY_RATIO" ]; then
-            echo "::error::DS_DIRTY_BG_RATIO ($DS_DIRTY_BG_RATIO) harus lebih kecil dari DS_DIRTY_RATIO ($DS_DIRTY_RATIO)"; exit 1
-          fi
-          [ -d kernel/power ] && [ -f kernel/power/Makefile ] \
-            || { echo "::error::kernel/power atau kernel/power/Makefile tidak ditemukan"; exit 1; }
-
-          # 2) Deteksi simbol (nama sesuai kernel 5.15; hasilnya 1/0)
-          has() {      # has SIMBOL FILE...   -> kata utuh ada di salah satu file
-            grep -qw -- "$1" "${@:2}" 2>/dev/null && echo 1 || echo 0
-          }
-          has_int() {  # has_int SIMBOL FILE... -> 'int SIMBOL' non-static (definisi/extern), aman untuk di-extern
-            grep -qE "^[[:space:]]*(extern[[:space:]]+)?int[[:space:]]+$1\b" "${@:2}" 2>/dev/null && echo 1 || echo 0
-          }
-          WBH=include/linux/writeback.h
-          HAS_STAT=$(has_int sysctl_stat_interval mm/vmstat.c include/linux/vmstat.h)
-          HAS_VFS=$(has_int sysctl_vfs_cache_pressure fs/dcache.c include/linux/dcache.h)
-          HAS_WB=$(has dirty_writeback_interval $WBH)
-          HAS_EXP=$(has dirty_expire_interval $WBH)
-          HAS_LAPTOP=$(has laptop_mode $WBH)
-          HAS_BG_RATIO=$(has dirty_background_ratio $WBH)     # BUKAN vm_dirty_background_ratio
-          HAS_RATIO=$(has vm_dirty_ratio $WBH)
-          HAS_RATELIMIT=$(has writeback_set_ratelimit $WBH)
-          HAS_BYTES=$(( $(has dirty_background_bytes $WBH) * $(has vm_dirty_bytes $WBH) ))
-
-          echo "Simbol -> stat:$HAS_STAT wb:$HAS_WB exp:$HAS_EXP laptop:$HAS_LAPTOP vfs:$HAS_VFS bg:$HAS_BG_RATIO ratio:$HAS_RATIO ratelimit:$HAS_RATELIMIT bytes:$HAS_BYTES"
-
-          skip_note() { [ "$2" = 1 ] || echo "::warning::$1 DILEWATI: simbol tidak ditemukan di kernel tree ini"; }
-          skip_note stat_interval  "$HAS_STAT"
-          skip_note vfs_cache      "$HAS_VFS"
-          skip_note writeback      "$HAS_WB"
-          skip_note expire         "$HAS_EXP"
-          skip_note laptop_mode    "$HAS_LAPTOP"
-          skip_note dirty_bg_ratio "$HAS_BG_RATIO"
-          skip_note dirty_ratio    "$HAS_RATIO"
-
-          if [ $((HAS_STAT + HAS_WB + HAS_EXP + HAS_VFS + HAS_BG_RATIO + HAS_RATIO + HAS_LAPTOP)) -eq 0 ]; then
-            echo "::warning::Tidak ada tunable VM yang kompatibel, modul tidak dipasang."
-            echo "::endgroup::"; exit 0
-          fi
-
-          # 3) Header konfigurasi (nilai dari env, flag dari deteksi)
-          cat > kernel/power/cryo_deepsleep_conf.h << EOF
-          #ifndef CRYO_DEEPSLEEP_CONF_H
-          #define CRYO_DEEPSLEEP_CONF_H
-
-          #define CRYO_DELAY_SEC     ${DS_DELAY_SEC}
-          #define CRYO_REAPPLY_SEC   ${DS_REAPPLY_SEC}
-          #define CRYO_STAT_SEC      ${DS_STAT_SEC}
-          #define CRYO_DIRTY_WB_CS   ${DS_DIRTY_WB_CS}
-          #define CRYO_DIRTY_EXP_CS  ${DS_DIRTY_EXP_CS}
-          #define CRYO_LAPTOP_MODE   ${DS_LAPTOP_MODE}
-          #define CRYO_VFS_CACHE     ${DS_VFS_CACHE}
-          #define CRYO_BG_RATIO      ${DS_DIRTY_BG_RATIO}
-          #define CRYO_RATIO         ${DS_DIRTY_RATIO}
-
-          #define CRYO_HAS_STAT      ${HAS_STAT}
-          #define CRYO_HAS_WB        ${HAS_WB}
-          #define CRYO_HAS_EXP       ${HAS_EXP}
-          #define CRYO_HAS_LAPTOP    ${HAS_LAPTOP}
-          #define CRYO_HAS_VFS       ${HAS_VFS}
-          #define CRYO_HAS_BG_RATIO  ${HAS_BG_RATIO}
-          #define CRYO_HAS_RATIO     ${HAS_RATIO}
-          #define CRYO_HAS_RATELIMIT ${HAS_RATELIMIT}
-          #define CRYO_HAS_BYTES     ${HAS_BYTES}
-
-          #endif
-          EOF
-
-          # 4) Source modul
-          cat > kernel/power/cryo_deepsleep.c << 'EOF'
-          // SPDX-License-Identifier: GPL-2.0-only
-          #define pr_fmt(fmt) "cryo_deepsleep: " fmt
-
-          #include <linux/init.h>
-          #include <linux/kernel.h>
-          #include <linux/jiffies.h>
-          #include <linux/workqueue.h>
-          #include <linux/writeback.h>
-          #include <linux/dcache.h>
-
-          #include "cryo_deepsleep_conf.h"
-
-          #if CRYO_HAS_STAT
-          extern int sysctl_stat_interval;
-          #endif
-          #if CRYO_HAS_VFS
-          extern int sysctl_vfs_cache_pressure;
-          #endif
-
-          static bool cryo_logged;
-
-          static void cryo_deepsleep_apply(struct work_struct *work)
-          {
-          #if CRYO_HAS_STAT
-          	sysctl_stat_interval = CRYO_STAT_SEC * HZ;
-          #endif
-          #if CRYO_HAS_WB
-          	dirty_writeback_interval = CRYO_DIRTY_WB_CS;
-          #endif
-          #if CRYO_HAS_EXP
-          	dirty_expire_interval = CRYO_DIRTY_EXP_CS;
-          #endif
-          #if CRYO_HAS_LAPTOP
-          	laptop_mode = CRYO_LAPTOP_MODE;
-          #endif
-          #if CRYO_HAS_VFS
-          	sysctl_vfs_cache_pressure = CRYO_VFS_CACHE;
-          #endif
-          #if CRYO_HAS_BG_RATIO
-          	dirty_background_ratio = CRYO_BG_RATIO;
-          #if CRYO_HAS_BYTES
-          	dirty_background_bytes = 0;	/* rasio hanya dipakai bila *_bytes = 0 */
-          #endif
-          #endif
-          #if CRYO_HAS_RATIO
-          	vm_dirty_ratio = CRYO_RATIO;
-          #if CRYO_HAS_BYTES
-          	vm_dirty_bytes = 0;
-          #endif
-          #endif
-          #if CRYO_HAS_RATELIMIT && (CRYO_HAS_BG_RATIO || CRYO_HAS_RATIO)
-          	writeback_set_ratelimit();	/* hitung ulang batas throttle, seperti handler sysctl */
-          #endif
-
-          	if (!cryo_logged) {
-          		pr_info("deep sleep tunables applied\n");
-          		cryo_logged = true;
-          	}
-          #if CRYO_REAPPLY_SEC > 0
-          	/* deferrable: tidak membangunkan CPU dari idle hanya untuk ini */
-          	schedule_delayed_work(to_delayed_work(work), CRYO_REAPPLY_SEC * HZ);
-          #endif
-          }
-
-          static DECLARE_DEFERRABLE_WORK(cryo_deepsleep_work, cryo_deepsleep_apply);
-
-          static int __init cryo_deepsleep_init(void)
-          {
-          	schedule_delayed_work(&cryo_deepsleep_work, CRYO_DELAY_SEC * HZ);
-          	return 0;
-          }
-          late_initcall(cryo_deepsleep_init);
-          EOF
-
-          # 5) Pasang ke build (idempoten)
-          if ! grep -q 'cryo_deepsleep.o' kernel/power/Makefile; then
-            printf '\n# Cryo Deep Sleep Module\nobj-y += cryo_deepsleep.o\n' >> kernel/power/Makefile
-          fi
+          done
           echo "::endgroup::"
 
-          # 6) Laporan (juga ke Step Summary) - yang di-skip terlihat jelas
-          st() { [ "$1" = 1 ] && echo "$2" || echo "SKIP (simbol tidak ada)"; }
-          {
-            echo "### 😴 Cryo Enhance Deep Sleep"
-            echo "✅ deep sleep successfully Enhance"
-            
-          } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::Guard VINTF gagal, masih aktif: ${failed[*]}"
+            exit 1
+          fi
+
+          echo "✅ Guard VINTF lolos: IPv6 NAT/Masquerade nonaktif"
           
       - name: "🔨 Build kernel"
         if: github.event.inputs.toolchain_type == 'android-tools'
