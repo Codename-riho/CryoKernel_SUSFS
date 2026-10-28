@@ -27,7 +27,7 @@ on:
         description: "Device (used for defconfig)"
         required: true
         type: string
-        default: "gki"
+        default: "cryo"
       localVersion:
         description: "Custom localversion suffix"
         required: true
