@@ -506,6 +506,7 @@ jobs:
         if: github.event.inputs.droidspaces_support == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
+          NO_IP6_NAT: "1"
           DS_REF: main                  # branch/tag/commit Droidspaces-OSS
           DS_OPTIONAL_FEATURES: "true"  # IPv6 NAT, macvlan, UFW, Fail2ban, tmpfs xattr/ACL
         run: |
@@ -558,7 +559,7 @@ jobs:
                     IP_SET IP_SET_HASH_IP IP_SET_HASH_NET NETFILTER_XT_SET
                     TMPFS_POSIX_ACL TMPFS_XATTR"
           [ "${DS_OPTIONAL_FEATURES:-true}" = "true" ] || OPTIONAL=""
-          # GKI/CLO normal: jangan aktifkan lagi IPv6 NAT (dilarang VINTF)
+          # GKI|CLO normal: jangan aktifkan lagi IPv6 NAT (dilarang VINTF)
           if [ "${NO_IP6_NAT:-0}" = 1 ]; then
             OPTIONAL="${OPTIONAL//IP6_NF_NAT/}"
             OPTIONAL="${OPTIONAL//IP6_NF_TARGET_MASQUERADE/}"
@@ -585,7 +586,19 @@ jobs:
             fi
           done
 
-          echo "✅ Droidspaces: patch kABI + defconfig siap (kernel $KVER.$KPL)"background: background:
+          echo "✅ Droidspaces: patch kABI + defconfig siap (kernel $KVER.$KPL)"
+
+      - name: "🛡️ Guard VINTF"
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -euo pipefail
+          CFG="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          for o in IP6_NF_NAT IP6_NF_TARGET_MASQUERADE; do
+            scripts/config --file "$CFG" -d "CONFIG_$o"
+            if grep -Eq "^CONFIG_${o}=(y|m)" "$CFG"; then
+              echo "::error::CONFIG_${o} masih aktif"; exit 1
+            fi
+          done
 
       - name: '⚙️ Inject Reflex Governor'
         if: github.event.inputs.gaming_mode == 'Enabled'
