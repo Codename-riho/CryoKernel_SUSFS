@@ -424,6 +424,8 @@ jobs:
             -e CONFIG_LRU_GEN_ENABLED \
             -e CONFIG_CRYPTO_LZ4 \
             -e CONFIG_ZRAM_DEF_COMP_LZ4 \
+            -d CONFIG_CRYPTO_LZO \
+            -d CONFIG_CRYPTO_LZO_RLE \
             -d CONFIG_ZRAM_DEF_COMP_LZORLE \
             -d CONFIG_ZRAM_DEF_COMP_LZO \
             -d CONFIG_ZRAM_DEF_COMP_ZSTD \
