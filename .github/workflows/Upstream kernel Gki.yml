@@ -1,86 +1,108 @@
-name: 📦 Import Kernel AOSP
+name: 🔄 Upstream Kernel AOSP
 
 on:
   workflow_dispatch:
     inputs:
       aosp_ref:
-        description: "Branch/tag di android.googlesource.com/kernel/common"
+        description: "Branch/tag upstream di android.googlesource.com/kernel/common"
         required: true
         default: "android13-5.15-lts"
-      new_branch:
-        description: "Nama branch baru di repo ini"
+      base_branch:
+        description: "Branch snapshot upstream di repo ini (hasil Import Kernel AOSP)"
         required: true
         default: "android13-5.15-lts"
-      depth:
-        description: "Kedalaman history (1 = commit terakhir saja)"
+      target_branch:
+        description: "Branch tujuan upstream"
         required: true
-        default: "1"
+        default: "cryo_gki"
 
 permissions:
   contents: write
 
 jobs:
-  import-kernel:
+  upstream:
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       AOSP_URL: "https://android.googlesource.com/kernel/common"
       AOSP_REF: ${{ inputs.aosp_ref }}
-      NEW_BRANCH: ${{ inputs.new_branch }}
-      DEPTH: ${{ inputs.depth }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BASE_BRANCH: ${{ inputs.base_branch }}
+      TARGET_BRANCH: ${{ inputs.target_branch }}
     steps:
-      - name: 📥 Clone kernel dari AOSP
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          path: work
+
+      - name: 📥 Clone upstream AOSP
         run: |
           set -euo pipefail
-
-          git check-ref-format "refs/heads/$NEW_BRANCH" \
-            || { echo "❌ Nama branch tidak valid: $NEW_BRANCH"; exit 1; }
-          [[ "$DEPTH" =~ ^[1-9][0-9]*$ ]] \
-            || { echo "❌ Depth harus angka >= 1"; exit 1; }
-
-          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          if git ls-remote --exit-code --heads "$REMOTE" "refs/heads/$NEW_BRANCH" >/dev/null 2>&1; then
-            echo "❌ Branch $NEW_BRANCH sudah ada di repo ini. Hapus dulu atau pakai nama lain."
-            exit 1
-          fi
-
           ok=0
           for i in 1 2 3; do
             echo "📥 Clone $AOSP_REF (percobaan $i/3)"
-            if git clone --depth="$DEPTH" --single-branch --branch "$AOSP_REF" "$AOSP_URL" kernel; then
+            if git clone --depth=1 --single-branch --branch "$AOSP_REF" "$AOSP_URL" aosp; then
               ok=1; break
             fi
-            rm -rf kernel; sleep 15
+            rm -rf aosp; sleep 15
           done
           [ "$ok" = 1 ] || { echo "❌ Clone gagal setelah 3x percobaan"; exit 1; }
 
-      - name: 🌿 Push ke branch baru
+      - name: 🔄 Buat snapshot dan merge ke target
         run: |
           set -euo pipefail
-          cd kernel
+          cd work
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config http.postBuffer 524288000
 
-          git remote add mine "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          kver() {
+            git show "$1:Makefile" \
+              | awk '/^VERSION =/{v=$3} /^PATCHLEVEL =/{p=$3} /^SUBLEVEL =/{s=$3} END{print v"."p"."s}'
+          }
 
-          SRC_SHA="$(git rev-parse --short HEAD)"
-          KVER="$(make -s kernelversion 2>/dev/null || echo '?')"
+          git rev-parse --verify -q "origin/$BASE_BRANCH" >/dev/null \
+            || { echo "❌ Branch $BASE_BRANCH tidak ada di repo ini"; exit 1; }
+          BASE_SHA="$(git rev-parse "origin/$BASE_BRANCH")"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD \
+            || { echo "❌ $BASE_BRANCH bukan leluhur $TARGET_BRANCH (history tidak nyambung)"; exit 1; }
 
-          if ! git push mine "HEAD:refs/heads/$NEW_BRANCH"; then
-            echo "⚠️ Push ditolak (kemungkinan history shallow), mencoba sebagai commit tunggal"
-            git checkout -q --orphan flat
-            git commit -q -m "Import kernel/common $AOSP_REF @ $SRC_SHA" \
+          SRC_SHA="$(git -C ../aosp rev-parse --short HEAD)"
+          OLD_VER="$(kver "$BASE_SHA")"
+
+          # 1) Snapshot upstream terbaru di atas snapshot lama
+          git checkout -q -B snapshot "$BASE_SHA"
+          rsync -a --delete --exclude=/.git ../aosp/ ./
+          git add -A -f
+          if git diff --cached --quiet; then
+            echo "ℹ️ $BASE_BRANCH sudah sama dengan upstream $AOSP_REF ($SRC_SHA)"
+          else
+            git commit -q -m "Upstream kernel/common $AOSP_REF @ $SRC_SHA" \
                            -m "Source: $AOSP_URL"
-            git push mine "HEAD:refs/heads/$NEW_BRANCH"
+            git push origin "snapshot:refs/heads/$BASE_BRANCH"
           fi
 
+          # 2) Merge snapshot ke target
+          git checkout -q "$TARGET_BRANCH"
+          if git merge-base --is-ancestor snapshot HEAD; then
+            echo "✅ $TARGET_BRANCH sudah memuat upstream terbaru"
+            exit 0
+          fi
+
+          if ! git merge --no-ff -m "Merge upstream $AOSP_REF ($SRC_SHA) into $TARGET_BRANCH" snapshot; then
+            echo "❌ Konflik di file berikut:"
+            git diff --name-only --diff-filter=U
+            echo "ℹ️ Snapshot sudah ada di $BASE_BRANCH. Selesaikan di lokal:"
+            echo "   git checkout $TARGET_BRANCH && git merge origin/$BASE_BRANCH"
+            exit 1
+          fi
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+
           {
-            echo "### 📦 Import Kernel AOSP"
-            echo "- Sumber: \`$AOSP_URL\` (\`$AOSP_REF\`)"
-            echo "- Versi kernel: \`$KVER\`"
-            echo "- Branch: \`$NEW_BRANCH\`"
-            echo "- Commit: \`$(git rev-parse --short HEAD)\`"
+            echo "### 🔄 Upstream Kernel AOSP"
+            echo "- Sumber: \`$AOSP_URL\` (\`$AOSP_REF\` @ \`$SRC_SHA\`)"
+            echo "- Versi kernel: \`$OLD_VER\` → \`$(kver HEAD)\`"
+            echo "- Snapshot: \`$BASE_BRANCH\`"
+            echo "- Target: \`$TARGET_BRANCH\` @ \`$(git rev-parse --short HEAD)\`"
           } >> "$GITHUB_STEP_SUMMARY"
