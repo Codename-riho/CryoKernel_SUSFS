@@ -274,36 +274,46 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "📦 Mengunduh custom toolchain dari $CLANG_REPO..."
-          
-          # Ambil URL release asset (mendukung .tar.gz, .tar.xz, .zip, dsb)
-          RELEASE_JSON=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$CLANG_REPO/releases/latest")
-          clang_url=$(echo "$RELEASE_JSON" | grep -Eo 'https://[^\"]+\.(tar\.gz|tar\.xz|tar\.bz2|zip|tgz)' | head -n1 || true)
-
-          [ -n "$clang_url" ] || { echo "::error::Release asset (tar/zip) tidak ditemukan di $CLANG_REPO"; exit 1; }
-          echo "✅ Clang URL: $clang_url"
-
           rm -rf clang_toolchain
           mkdir -p clang_toolchain
-          
-          ARCHIVE_NAME=$(basename "$clang_url")
-          wget -q --show-progress -O "$ARCHIVE_NAME" "$clang_url"
 
-          echo "📦 Ekstraksi $ARCHIVE_NAME..."
-          case "$ARCHIVE_NAME" in
-            *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2)
-              tar -xf "$ARCHIVE_NAME" -C clang_toolchain
-              ;;
-            *.zip)
-              unzip -q "$ARCHIVE_NAME" -d clang_toolchain
-              ;;
-            *)
-              tar -xf "$ARCHIVE_NAME" -C clang_toolchain || unzip -q "$ARCHIVE_NAME" -d clang_toolchain
-              ;;
-          esac
-          rm -f "$ARCHIVE_NAME"
+          if [ "$CLANG_REPO" = "Neutron-Toolchains/antman" ]; then
+            echo "🫳 Mengambil Neutron Clang via antman..."
+            (
+              cd clang_toolchain
+              curl -fsSL --retry 3 -o antman "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+              chmod +x antman
+              ./antman -S
+            )
+          else
+            echo "📦 Mengunduh custom toolchain dari $CLANG_REPO..."
 
-          # Cari biner 'clang' (Mendukung file biasa -type f DAN symlink -type l)
+            # Ambil URL release asset (mendukung .tar.gz, .tar.xz, .zip, dsb)
+            RELEASE_JSON=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$CLANG_REPO/releases/latest")
+            clang_url=$(echo "$RELEASE_JSON" | grep -Eo 'https://[^"]+\.(tar\.gz|tar\.xz|tar\.bz2|zip|tgz)' | head -n1 || true)
+
+            [ -n "$clang_url" ] || { echo "::error::Release asset (tar/zip) tidak ditemukan di $CLANG_REPO"; exit 1; }
+            echo "✅ Clang URL: $clang_url"
+
+            ARCHIVE_NAME=$(basename "$clang_url")
+            wget -q --show-progress -O "$ARCHIVE_NAME" "$clang_url"
+
+            echo "📦 Ekstraksi $ARCHIVE_NAME..."
+            case "$ARCHIVE_NAME" in
+              *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2)
+                tar -xf "$ARCHIVE_NAME" -C clang_toolchain
+                ;;
+              *.zip)
+                unzip -q "$ARCHIVE_NAME" -d clang_toolchain
+                ;;
+              *)
+                tar -xf "$ARCHIVE_NAME" -C clang_toolchain || unzip -q "$ARCHIVE_NAME" -d clang_toolchain
+                ;;
+            esac
+            rm -f "$ARCHIVE_NAME"
+          fi
+
+          # Cari biner 'clang' (file biasa -type f DAN symlink -type l)
           CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name "clang" -path "*/bin/clang" | head -n1)
           if [ -z "$CLANG_EXEC" ]; then
             CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name "clang" | head -n1)
