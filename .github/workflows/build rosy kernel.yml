@@ -67,9 +67,9 @@ jobs:
         sed -i '/kernelsu\//d' drivers/Makefile || true
         rm -rf drivers/kernelsu
 
-    - name: Emded BakaSU
+    - name: 👾 Setup BakaSU
       run: |
-        git clone --depth=1 -b main https://github.com/Baka-SU/BakaSU.git
+        git clone --depth=1 -b main https://github.com/Baka-SU/BakaSU.git ksu-next
         cp -r ksu-next/kernel drivers/kernelsu
 
         grep -q 'kernelsu/' drivers/Makefile || \
