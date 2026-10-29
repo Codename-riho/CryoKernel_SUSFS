@@ -424,7 +424,7 @@ jobs:
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
           # --- WireGuard Core & Hardware Acceleration ---
-          scripts/config --file "$CFG" \
+          scripts/config --file "$CONFIG_FILE" \
           -e CONFIG_WIREGUARD \
           -e CONFIG_NET_UDP_TUNNEL \
           -e CONFIG_DST_CACHE \
