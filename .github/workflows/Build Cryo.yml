@@ -1281,7 +1281,11 @@ jobs:
           if-no-files-found: error
           
       - name: "📱 Send to Telegram"
+        if: ${{ !cancelled() }}
         env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build-kernels.result }}
+          JOB_STATUS: ${{ job.status }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
           TELEGRAM_IMAGE_URL: ${{ secrets.TELEGRAM_IMAGE_URL }}
@@ -1290,7 +1294,6 @@ jobs:
           SUSFS_SUPPORT: ${{ inputs.susfsSupport || 'Enabled' }}
           SUSFS_COMMIT: ${{ inputs.susfs_commit }}
           DROIDSPACES_SUPPORT: ${{ inputs.droidspaces_support || 'Enabled' }}
-          GAMING_MODE: ${{ inputs.gaming_mode || '' }}
           TOOLCHAIN_TYPE: ${{ inputs.toolchain_type || 'android-tools' }}
           CUSTOM_CLANG_REPO: ${{ inputs.customClangRepo }}
           DEVICE_NAME: "Redmi Note 12 4G"
@@ -1304,7 +1307,6 @@ jobs:
           API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
           esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
-          # Foto + caption bila muat (<=1024 karakter), selain itu teks biasa
           tg_send() {
             local text="$1" len resp
             len=$(printf '%s' "$text" | sed -e 's/<[^>]*>//g' | wc -m)
@@ -1326,7 +1328,7 @@ jobs:
             echo "::warning::Telegram menolak pesan: $(echo "$resp" | jq -r '.description // empty' 2>/dev/null)"; return 1
           }
 
-          # ── Teks konfigurasi ──
+          # ── Teks konfigurasi (dipakai pesan sukses & gagal) ──
           if [ "$SUSFS_SUPPORT" = "Disabled" ]; then
             SUSFS_TEXT="Disabled"
           else
@@ -1334,28 +1336,23 @@ jobs:
           fi
           if [ "$DROIDSPACES_SUPPORT" = "Disabled" ]; then DROIDSPACES_TEXT="Disabled"; else DROIDSPACES_TEXT="Enabled"; fi
 
-          GAMING_LINE=""
-          if [ "$GAMING_MODE" = "Enabled" ]; then
-            GAMING_LINE=$'\n'"• Gaming Mode: <code>Enabled (Vorpal + Fair Scheduler)</code>"
-          elif [ "$GAMING_MODE" = "Disabled" ]; then
-            GAMING_LINE=$'\n'"• Gaming Mode: <code>Disabled</code>"
-          fi
-
-          IMAGES=$(cd AnyKernel3 && ls Image.* 2>/dev/null | sed 's/^Image\.//' | paste -sd, - | sed 's/,/, /g')
           MANAGER=$(printf '%s' "$KSU_MANAGER${KSU_REF:+ @ $KSU_REF}" | esc)
-          DATE="${ZIP_NAME#CryoKernel_}"; DATE="${DATE%.zip}"
 
-          BT=$(find ./artifacts -type f -name 'build_tools.txt' -print -quit 2>/dev/null)
-          if [ -n "$BT" ]; then
-            BUILD_TOOLS=$(head -n1 "$BT" | tr -d '\r\n')
-          elif [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
+          if [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
             BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:-unknown})"
           else
             BUILD_TOOLS="android-tools (clang-r614150)"
           fi
-          BUILD_TOOLS=$(printf '%s' "${BUILD_TOOLS:-unknown}" | esc)
+          BT=$(find ./artifacts -type f -name 'build_tools.txt' -print -quit 2>/dev/null)
+          [ -n "$BT" ] && BUILD_TOOLS=$(head -n1 "$BT" | tr -d '\r\n')
+          BUILD_TOOLS=$(printf '%s' "$BUILD_TOOLS" | esc)
 
-          MSG="✅ <b>Kernel Build Successful</b>
+          if [ "$BUILD_RESULT" = "success" ] && [ "$JOB_STATUS" = "success" ]; then
+            # ───── SUKSES ─────
+            IMAGES=$(cd AnyKernel3 && ls Image.* 2>/dev/null | sed 's/^Image\.//' | paste -sd, - | sed 's/,/, /g')
+            DATE="${ZIP_NAME#CryoKernel_}"; DATE="${DATE%.zip}"
+
+            MSG="✅ <b>Kernel Build Successful</b>
 
           <b>📦 Build Information:</b>
           • Kernel: <code>Linux ${KERNEL_VERSION}</code>
@@ -1376,102 +1373,18 @@ jobs:
           📦 <b>Package:</b> <code>${ZIP_NAME}</code>
 
           🔗 <a href=\"${RUN_URL}\">Unduh dari Artifacts (halaman run)</a>"
-
-          tg_send "$MSG"
-          exit 0
-             
-  notify-failure:
-    name: "📱 Notify Telegram (failed)"
-    runs-on: ubuntu-26.04
-    needs: [build-kernels, package-kernels]
-    if: failure()
-    permissions:
-      actions: read
-    steps:
-      - name: "📱 Send to Telegram"
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
-          TELEGRAM_IMAGE_URL: ${{ secrets.TELEGRAM_IMAGE_URL }}
-          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
-          KSU_REF: ${{ inputs.ksu_ref }}
-          SUSFS_SUPPORT: ${{ inputs.susfsSupport || 'Enabled' }}
-          SUSFS_COMMIT: ${{ inputs.susfs_commit }}
-          DROIDSPACES_SUPPORT: ${{ inputs.droidspaces_support || 'Enabled' }}
-          GAMING_MODE: ${{ inputs.gaming_mode || '' }}
-          TOOLCHAIN_TYPE: ${{ inputs.toolchain_type || 'android-tools' }}
-          CUSTOM_CLANG_REPO: ${{ inputs.customClangRepo }}
-          DEVICE_NAME: "Redmi Note 12 4G"
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -uo pipefail
-          set +e
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_USER_ID:-}" ]; then
-            echo "::notice::Secret Telegram belum diisi, notifikasi dilewati"; exit 0
-          fi
-          API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
-          esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
-
-          tg_send() {
-            local text="$1" len resp
-            len=$(printf '%s' "$text" | sed -e 's/<[^>]*>//g' | wc -m)
-            if [ -n "${TELEGRAM_IMAGE_URL:-}" ] && [ "$len" -le 1000 ]; then
-              resp=$(curl -sS "$API/sendPhoto" \
-                --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
-                --data-urlencode "photo=${TELEGRAM_IMAGE_URL}" \
-                --data-urlencode "caption=${text}" \
-                --data-urlencode "parse_mode=HTML")
-              if echo "$resp" | jq -e '.ok' >/dev/null 2>&1; then echo "✅ Telegram terkirim (foto)"; return 0; fi
-              echo "::warning::sendPhoto ditolak: $(echo "$resp" | jq -r '.description // empty' 2>/dev/null). Coba kirim teks."
-            fi
-            resp=$(curl -sS "$API/sendMessage" \
-              --data-urlencode "chat_id=${TELEGRAM_USER_ID}" \
-              --data-urlencode "parse_mode=HTML" \
-              --data-urlencode 'link_preview_options={"is_disabled":true}' \
-              --data-urlencode "text=${text}")
-            if echo "$resp" | jq -e '.ok' >/dev/null 2>&1; then echo "✅ Telegram terkirim (teks)"; return 0; fi
-            echo "::warning::Telegram menolak pesan: $(echo "$resp" | jq -r '.description // empty' 2>/dev/null)"; return 1
-          }
-
-          # Job dan step yang gagal (lewat GitHub API)
-          FAILED=""
-          while IFS=$'\t' read -r job step; do
-            if [ -n "$job" ]; then
-              FAILED+="• <b>$(printf '%s' "$job" | esc)</b> → <code>$(printf '%s' "$step" | esc)</code>"$'\n'
-            fi
-          done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
-                     --jq '.jobs[] | select(.conclusion=="failure") | [.name, (([.steps[]? | select(.conclusion=="failure")][0].name) // "-")] | @tsv' 2>/dev/null)
-          if [ -z "$FAILED" ]; then FAILED="• (detail tidak tersedia)"$'\n'; fi
-
-          # ── Teks konfigurasi (sama dengan job sukses) ──
-          if [ "$SUSFS_SUPPORT" = "Disabled" ]; then
-            SUSFS_TEXT="Disabled"
           else
-            SC="${SUSFS_COMMIT:-latest}"; SUSFS_TEXT="Enabled (GKI A13-5.15, ${SC:0:7})"
-          fi
-          if [ "$DROIDSPACES_SUPPORT" = "Disabled" ]; then DROIDSPACES_TEXT="Disabled"; else DROIDSPACES_TEXT="Enabled"; fi
+            # ───── GAGAL ─────
+            FAILED=""
+            while IFS=$'\t' read -r job step; do
+              if [ -n "$job" ]; then
+                FAILED+="• <b>$(printf '%s' "$job" | esc)</b> → <code>$(printf '%s' "$step" | esc)</code>"$'\n'
+              fi
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+                       --jq '.jobs[] | select(.conclusion=="failure" or ([.steps[]? | select(.conclusion=="failure")] | length > 0)) | [.name, (([.steps[]? | select(.conclusion=="failure")][0].name) // "-")] | @tsv' 2>/dev/null)
+            if [ -z "$FAILED" ]; then FAILED="• (detail tidak tersedia)"$'\n'; fi
 
-          GAMING_LINE=""
-          if [ "$GAMING_MODE" = "Enabled" ]; then
-            GAMING_LINE=$'\n'"• Gaming Mode: <code>Enabled (Vorpal + Fair Scheduler)</code>"
-          elif [ "$GAMING_MODE" = "Disabled" ]; then
-            GAMING_LINE=$'\n'"• Gaming Mode: <code>Disabled</code>"
-          fi
-
-          # Artifact build_tools.txt tidak ada di job ini, jadi diturunkan dari input
-          if [ "$TOOLCHAIN_TYPE" = "custom-tools" ]; then
-            BUILD_TOOLS="custom-tools (${CUSTOM_CLANG_REPO:-unknown})"
-          else
-            BUILD_TOOLS="android-tools (clang-r614150)"
-          fi
-          BUILD_TOOLS=$(printf '%s' "${BUILD_TOOLS:-unknown}" | esc)
-
-          MANAGER="$KSU_MANAGER"
-          if [ -n "$KSU_REF" ]; then MANAGER="$KSU_MANAGER @ $KSU_REF"; fi
-          MANAGER=$(printf '%s' "$MANAGER" | esc)
-
-          MSG="❌ <b>Kernel Build Failed</b>
+            MSG="❌ <b>Kernel Build Failed</b>
 
           <b>📦 Build Information:</b>
           • Kernel: <code>Linux ${KERNEL_VERSION}</code>
@@ -1488,6 +1401,7 @@ jobs:
           ${FAILED}
           🕐 <b>Build Date:</b> $(TZ=Asia/Jakarta date '+%Y-%m-%d %H:%M:%S WIB')
           🔍 Cek <a href=\"${RUN_URL}\">workflow logs</a> (artifact <code>error-logs-*</code> berisi build_full.log)"
+          fi
 
           tg_send "$MSG"
           exit 0
