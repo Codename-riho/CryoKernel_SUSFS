@@ -418,9 +418,7 @@ jobs:
             -d CONFIG_ZRAM_DEF_COMP_842 \
             -d CONFIG_KERNEL_BZIP2 \
             -d CONFIG_KERNEL_UNCOMPRESSED \
-            -d CONFIG_KPROFILES \
-            -e CONFIG_MACH_XIAOMI_TOPAZ \
-            -e CONFIG_I2C_MSM_GENI
+            -d CONFIG_KPROFILES 
           
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
