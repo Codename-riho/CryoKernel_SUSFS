@@ -44,7 +44,7 @@ on:
        description: "Add droidspaces proper support?"
        required: true
        type: choice
-       default: "Enabled"
+       default: "Disabled"
        options:
          - "Enabled"
          - "Disabled"    
