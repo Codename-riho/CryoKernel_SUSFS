@@ -15,9 +15,7 @@ jobs:
       OUT_DIR: out
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-
+    
     - name: Install dependencies
       run: |
         sudo apt update
@@ -28,6 +26,19 @@ jobs:
           clang lld llvm \
           device-tree-compiler \
           unzip zip cpio
+
+    - name: 🧹 Aggressive Cleanup
+      run: |
+          # Remove heavy pre-installed tools
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
+          # Prune Docker to remove hidden images and build cache
+          sudo docker image prune --all --force
+          sudo docker builder prune -a -f
 
     - name: Fetch Proton Clang
       run: |
