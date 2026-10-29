@@ -1168,10 +1168,13 @@ jobs:
     name: "📦 Package Kernels"
     runs-on: ubuntu-26.04
     needs: [build-kernels]
+    if: ${{ !cancelled() }}
     permissions:
       contents: write
+      actions: read
     steps:
       - name: "🧩 Ringkasan konfigurasi kernel"
+        if: needs.build-kernels.result == 'success'
         run: |
           VARIANTS=$(ls ./artifacts | grep -- '-kernel$' | sed 's/-kernel$//' | paste -sd, - | sed 's/,/, /g')
           {
@@ -1180,11 +1183,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           
       - name: "📥 Download kernel artifacts"
+        if: needs.build-kernels.result == 'success'
         uses: actions/download-artifact@v8
         with:
           path: ./artifacts/
 
       - name: "📦 Create release package"
+        if: needs.build-kernels.result == 'success'
         run: |
           set -e
 
@@ -1267,6 +1272,7 @@ jobs:
           echo "✅ Package created: $ZIP_NAME"
           
       - name: "📤 Upload kernel ZIP artifact"
+        if: needs.build-kernels.result == 'success'
         uses: actions/upload-artifact@v7
         with:
           path: ${{ env.ZIP_NAME }}
