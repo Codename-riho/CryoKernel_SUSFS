@@ -37,11 +37,18 @@ on:
         default: android-tools       
       customClangRepo:
         description: "Repo clang (HANYA DIPAKAI JIKA memilih 'custom-tools' di atas)"
-        type: choice 
+        type: choice
         options:
           - greenforce-project/greenforce_clang
           - Neutron-Toolchains/antman
+          - ZyCromerZ/Clang
+          - XSans0/WeebX-Clang
         default: greenforce-project/greenforce_clang
+      customClangTag:
+        description: "Tag release (opsional; kosong = latest. ZyCromerZ kosong = 14.0.6-20261022-release. Diabaikan untuk antman & WeebX)"
+        type: string
+        required: false
+        default: ""
       droidspaces_support: 
        description: "Add droidspaces proper support?"
        required: true
@@ -271,53 +278,112 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CLANG_REPO: ${{ github.event.inputs.customClangRepo }}
+          CLANG_TAG: ${{ github.event.inputs.customClangTag }}
         run: |
           set -euo pipefail
 
+          # ── Konfigurasi ────────────────────────────────────────────────────────
+          ZYC_DEFAULT_TAG="14.0.6-20261022-release"   # dipakai jika customClangTag kosong
+          WEEBX_LINK_URL="https://raw.githubusercontent.com/XSans0/WeebX-Clang/main/main/link.txt"
+          ASSET_RE='\.(tar\.(gz|xz|bz2|zst)|tgz|zip)$'
+          ASSET_SKIP_RE='(sha|md5|sig|asc|src|source)'
+
+          WORK_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/clang-dl.XXXXXX")"
+          trap 'rm -rf "$WORK_DIR"' EXIT
+
+          log()  { echo "$*"; }
+          fail() { echo "::error::$*"; exit 1; }
+
+          # ── Validasi input (sebelum dipakai di URL / path) ────────────────────
+          case "$CLANG_REPO" in
+            greenforce-project/greenforce_clang|Neutron-Toolchains/antman|ZyCromerZ/Clang|XSans0/WeebX-Clang) ;;
+            *) fail "Repo clang tidak dikenal: $CLANG_REPO" ;;
+          esac
+          if [ -n "$CLANG_TAG" ] && ! [[ "$CLANG_TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            fail "Format customClangTag tidak valid: $CLANG_TAG"
+          fi
+
+          # ── Helper ─────────────────────────────────────────────────────────────
+          # Ambil URL asset arsip dari GitHub Release (tag kosong = latest)
+          release_asset_url() {
+            local repo="$1" tag="$2" api json
+            if [ -n "$tag" ]; then api="https://api.github.com/repos/$repo/releases/tags/$tag"
+            else                   api="https://api.github.com/repos/$repo/releases/latest"; fi
+            json=$(curl -fsSL --retry 3 --retry-delay 3 \
+                     -H "Authorization: Bearer $GH_TOKEN" \
+                     -H "Accept: application/vnd.github+json" "$api") \
+              || fail "Gagal mengakses release $repo ${tag:+(tag $tag)}"
+            jq -r --arg re "$ASSET_RE" --arg skip "$ASSET_SKIP_RE" '
+                [ .assets[]?
+                  | select(.name | test($re; "i"))
+                  | select(.name | test($skip; "i") | not) ]
+                | .[0].browser_download_url // empty' <<<"$json"
+          }
+
+          # Unduh arsip lalu ekstrak ke clang_toolchain
+          fetch_and_extract() {
+            local url="$1" name archive
+            [[ "$url" =~ ^https:// ]] || fail "URL bukan HTTPS: $url"
+            name="$(basename "${url%%\?*}")"
+            archive="$WORK_DIR/$name"
+            log "✅ URL: $url"
+            curl -fL --retry 3 --retry-delay 5 --progress-bar -o "$archive" "$url" \
+              || fail "Gagal mengunduh $url"
+            log "🔐 SHA256: $(sha256sum "$archive" | cut -d' ' -f1)"
+            log "📦 Ekstraksi $name..."
+            case "$name" in
+              *.zip) unzip -q "$archive" -d clang_toolchain ;;
+              *)     tar -xf "$archive" -C clang_toolchain ;;
+            esac
+          }
+
+          # ── Ambil toolchain sesuai sumber ──────────────────────────────────────
           rm -rf clang_toolchain
           mkdir -p clang_toolchain
 
-          if [ "$CLANG_REPO" = "Neutron-Toolchains/antman" ]; then
-            echo "🫳 Mengambil Neutron Clang via antman..."
-            (
-              cd clang_toolchain
-              curl -fsSL --retry 3 -o antman "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
-              chmod +x antman
-              ./antman -S
-            )
-          else
-            echo "📦 Mengunduh custom toolchain dari $CLANG_REPO..."
+          case "$CLANG_REPO" in
+            Neutron-Toolchains/antman)
+              log "🫳 Mengambil Neutron Clang via antman..."
+              (
+                cd clang_toolchain
+                curl -fsSL --retry 3 -o antman "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+                chmod +x antman
+                ./antman -S
+              )
+              ;;
 
-            # Ambil URL release asset (mendukung .tar.gz, .tar.xz, .zip, dsb)
-            RELEASE_JSON=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$CLANG_REPO/releases/latest")
-            clang_url=$(echo "$RELEASE_JSON" | grep -Eo 'https://[^"]+\.(tar\.gz|tar\.xz|tar\.bz2|zip|tgz)' | head -n1 || true)
+            ZyCromerZ/Clang)
+              TAG="${CLANG_TAG:-$ZYC_DEFAULT_TAG}"
+              log "📦 ZyCromerZ Clang (tag: $TAG)..."
+              url=$(release_asset_url "$CLANG_REPO" "$TAG")
+              [ -n "$url" ] || fail "Asset arsip tidak ditemukan di $CLANG_REPO@$TAG"
+              fetch_and_extract "$url"
+              ;;
 
-            [ -n "$clang_url" ] || { echo "::error::Release asset (tar/zip) tidak ditemukan di $CLANG_REPO"; exit 1; }
-            echo "✅ Clang URL: $clang_url"
+            XSans0/WeebX-Clang)
+              # WeebX tidak memakai GitHub Releases: URL arsip terbaru ada di main/link.txt
+              log "📦 WeebX Clang (via link.txt)..."
+              url=$(curl -fsSL --retry 3 --retry-delay 3 "$WEEBX_LINK_URL" | tr -d '\r' | sed -n '1p' | xargs) \
+                || fail "Gagal membaca $WEEBX_LINK_URL"
+              [ -n "$url" ] || fail "link.txt WeebX kosong"
+              fetch_and_extract "$url"
+              ;;
 
-            ARCHIVE_NAME=$(basename "$clang_url")
-            wget -q --show-progress -O "$ARCHIVE_NAME" "$clang_url"
+            *)  # greenforce-project/greenforce_clang (juga WeebX & repo lain berbasis Releases)
+              log "📦 Mengunduh custom toolchain dari $CLANG_REPO${CLANG_TAG:+ (tag $CLANG_TAG)}..."
+              url=$(release_asset_url "$CLANG_REPO" "$CLANG_TAG")
+              if [ -z "$url" ] && [ "$CLANG_REPO" = "XSans0/WeebX-Clang" ] && [ -z "$CLANG_TAG" ]; then
+                # Cadangan: WeebX menyimpan URL arsip terbaru di main/link.txt
+                log "ℹ️ Release latest tidak punya asset, mencoba link.txt..."
+                url=$(curl -fsSL --retry 3 --retry-delay 3 "$WEEBX_LINK_URL" | tr -d '\r' | sed -n '1p' | xargs) || url=""
+              fi
+              [ -n "$url" ] || fail "Asset arsip (tar/zip) tidak ditemukan di $CLANG_REPO${CLANG_TAG:+@$CLANG_TAG}"
+              fetch_and_extract "$url"
+              ;;
 
-            echo "📦 Ekstraksi $ARCHIVE_NAME..."
-            case "$ARCHIVE_NAME" in
-              *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2)
-                tar -xf "$ARCHIVE_NAME" -C clang_toolchain
-                ;;
-              *.zip)
-                unzip -q "$ARCHIVE_NAME" -d clang_toolchain
-                ;;
-              *)
-                tar -xf "$ARCHIVE_NAME" -C clang_toolchain || unzip -q "$ARCHIVE_NAME" -d clang_toolchain
-                ;;
-            esac
-            rm -f "$ARCHIVE_NAME"
-          fi
-
-          # Cari biner 'clang' (file biasa -type f DAN symlink -type l)
-          CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name "clang" -path "*/bin/clang" | head -n1)
-          if [ -z "$CLANG_EXEC" ]; then
-            CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name "clang" | head -n1)
-          fi
+          # ── Cari biner clang (file biasa DAN symlink) ──────────────────────────
+          CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name clang -path '*/bin/clang' | head -n1)
+          [ -n "$CLANG_EXEC" ] || CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name clang | head -n1)
 
           if [ -z "$CLANG_EXEC" ]; then
             echo "::error::Biner clang tidak ditemukan! Isi folder ekstraksi:"
@@ -325,13 +391,11 @@ jobs:
             exit 1
           fi
 
-          CLANG_BIN_DIR=$(dirname "$CLANG_EXEC")
-          CLANG_PATH="$(readlink -f "$CLANG_BIN_DIR")"
-
+          CLANG_PATH="$(readlink -f "$(dirname "$CLANG_EXEC")")"
           echo "CLANG_PATH=$CLANG_PATH" >> "$GITHUB_ENV"
           echo "$CLANG_PATH" >> "$GITHUB_PATH"
 
-          echo "✅ Biner Clang ditemukan di: $CLANG_PATH"
+          log "✅ Biner Clang ditemukan di: $CLANG_PATH"
           "$CLANG_PATH/clang" --version | head -n1
 
       - name: "😎 Set args for GKI kernels"
