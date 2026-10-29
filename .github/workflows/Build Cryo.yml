@@ -423,6 +423,19 @@ jobs:
           # Remove duplicate lines safely
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE" || true
 
+          # --- WireGuard Core & Hardware Acceleration ---
+          scripts/config --file "$CFG" \
+          -e CONFIG_WIREGUARD \
+          -e CONFIG_NET_UDP_TUNNEL \
+          -e CONFIG_DST_CACHE \
+          -e CONFIG_CRYPTO_CHACHA20POLY1305 \
+          -e CONFIG_CRYPTO_CHACHA20_NEON \
+          -e CONFIG_CRYPTO_POLY1305_NEON \
+          -e CONFIG_CRYPTO_CURVE25519 \
+          -e CONFIG_IP_ADVANCED_ROUTER \
+          -e CONFIG_IP_MULTIPLE_TABLES \
+          -e CONFIG_NETFILTER_XT_MATCH_FWMARK
+  
       - name: "🚄 Porting BBRv3 + PLB (cherry-pick)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
