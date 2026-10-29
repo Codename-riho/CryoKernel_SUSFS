@@ -360,15 +360,6 @@ jobs:
               fetch_and_extract "$url"
               ;;
 
-            XSans0/WeebX-Clang)
-              # WeebX tidak memakai GitHub Releases: URL arsip terbaru ada di main/link.txt
-              log "📦 WeebX Clang (via link.txt)..."
-              url=$(curl -fsSL --retry 3 --retry-delay 3 "$WEEBX_LINK_URL" | tr -d '\r' | sed -n '1p' | xargs) \
-                || fail "Gagal membaca $WEEBX_LINK_URL"
-              [ -n "$url" ] || fail "link.txt WeebX kosong"
-              fetch_and_extract "$url"
-              ;;
-
             *)  # greenforce-project/greenforce_clang (juga WeebX & repo lain berbasis Releases)
               log "📦 Mengunduh custom toolchain dari $CLANG_REPO${CLANG_TAG:+ (tag $CLANG_TAG)}..."
               url=$(release_asset_url "$CLANG_REPO" "$CLANG_TAG")
@@ -380,6 +371,7 @@ jobs:
               [ -n "$url" ] || fail "Asset arsip (tar/zip) tidak ditemukan di $CLANG_REPO${CLANG_TAG:+@$CLANG_TAG}"
               fetch_and_extract "$url"
               ;;
+          esac
 
           # ── Cari biner clang (file biasa DAN symlink) ──────────────────────────
           CLANG_EXEC=$(find clang_toolchain \( -type f -o -type l \) -name clang -path '*/bin/clang' | head -n1)
