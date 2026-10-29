@@ -226,11 +226,16 @@ jobs:
         working-directory: ${{ env.KERNEL_DIR }}
         run: |
           set -euo pipefail
-          echo "ld host   : $(command -v ld)"
-          echo "ld target : $(command -v aarch64-linux-gnu-ld)"
-          echo "clang     : $(command -v clang)"
+
+          echo "---- toolchain ----"
+          for t in clang ld.lld ld aarch64-linux-gnu-ld; do
+            printf '%-20s %s\n' "$t" "$(command -v "$t" || echo '(tidak ditemukan)')"
+          done
+
+          echo "---- defconfig ----"
           $KMAKE "$DEFCONFIG"
 
+          echo "---- KernelSU ----"
           scripts/config --file "$OUT_DIR/.config" \
             -e KSU \
             -e KSU_MANUAL_HOOK \
@@ -241,17 +246,21 @@ jobs:
           echo "---- cek config akhir ----"
           for sym in KSU KSU_MANUAL_HOOK; do
             grep -qx "CONFIG_${sym}=y" "$OUT_DIR/.config" \
-              || { echo "❌ CONFIG_${sym} tidak aktif di .config akhir"; exit 1; }
+              || { echo "::error::CONFIG_${sym} tidak aktif di .config akhir"; exit 1; }
           done
-          grep -E '^CONFIG_KSU|^CONFIG_KALLSYMS' "$OUT_DIR/.config"
-
+          grep -E '^CONFIG_(KSU|KALLSYMS)' "$OUT_DIR/.config"
+          
       - name: 🔨 Build kernel
         working-directory: ${{ env.KERNEL_DIR }}
         run: |
           set -euo pipefail
+
+          IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+
           $KMAKE -j"$(nproc --all)" Image.gz-dtb 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
-          test -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
-          ls -lh "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+
+          [ -f "$IMAGE" ] || { echo "::error::$IMAGE tidak terbentuk"; exit 1; }
+          ls -lh "$IMAGE"
 
       - name: 📥 Clone AnyKernel3
         run: |
