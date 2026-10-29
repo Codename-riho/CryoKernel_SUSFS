@@ -67,9 +67,9 @@ jobs:
         sed -i '/kernelsu\//d' drivers/Makefile || true
         rm -rf drivers/kernelsu
 
-    - name: Integrate KernelSU-Next
+    - name: Emded BakaSU
       run: |
-        git clone --depth=1 -b stable https://github.com/KernelSU-Next/KernelSU-Next.git ksu-next
+        git clone --depth=1 -b main https://github.com/Baka-SU/BakaSU.git
         cp -r ksu-next/kernel drivers/kernelsu
 
         grep -q 'kernelsu/' drivers/Makefile || \
