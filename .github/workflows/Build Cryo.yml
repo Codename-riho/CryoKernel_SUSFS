@@ -10,6 +10,8 @@ permissions:
   contents: write
 
 on:
+  schedule:
+    - cron: "0 20 * * 5"   # UTC → Sabtu 03:00 WIB
   workflow_dispatch:
      inputs:
       ksu_manager:
