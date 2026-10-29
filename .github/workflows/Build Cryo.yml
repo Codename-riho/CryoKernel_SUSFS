@@ -950,36 +950,34 @@ jobs:
       - name: "✍️ Set kernel build identity"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          BY_VAL="Dyatz"
+          BY_VAL="Dyatz-Snezhnaya"
           HOST_VAL="GitHub-Ubuntu"
           F=scripts/mkcompile_h
           [ -f "$F" ] || { echo "::error::$F tidak ditemukan"; exit 1; }
-          if ! grep -qE '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F"; then
-            echo "::error::Tidak ada penulisan LINUX_COMPILE_BY/HOST di $F"; exit 1
-          fi
+          
+          # $1 = BY|HOST, $2 = nilai yang diinginkan
+          set_identity() {
+            local key="LINUX_COMPILE_$1" val="$2"
+            local want="^[[:space:]]*${key}=\"${val}\"\$"
 
-          # Baris identitas yang nilainya belum sesuai
-          check_bad() {
-            grep -E '^[[:space:]]*LINUX_COMPILE_(BY|HOST)=' "$F" \
-              | grep -vE "LINUX_COMPILE_BY=\"${BY_VAL}\"\$|LINUX_COMPILE_HOST=\"${HOST_VAL}\"\$" || true
+            grep -qE "^[[:space:]]*${key}=" "$F" \
+              || { echo "::error::${key} tidak ada di $F"; exit 1; }
+
+            if grep -qE "$want" "$F"; then
+              echo "⏭️ ${key} sudah \"${val}\", dilewati"
+              return 0
+            fi
+
+            sed -i -E "s/^([[:space:]]*)${key}=.*/\1${key}=\"${val}\"/" "$F"
+            grep -qE "$want" "$F" \
+              || { echo "::error::Gagal mengubah ${key}"; exit 1; }
+            echo "✅ ${key} diubah ke \"${val}\""
           }
 
-          if [ -z "$(check_bad)" ]; then
-            echo "⏭️ Identitas kernel sudah sesuai (${BY_VAL} @ ${HOST_VAL}), dilewati."
-          else
-            echo "🔄 Memperbarui identitas kernel..."
-            sed -i -E \
-              -e "s/^([[:space:]]*)LINUX_COMPILE_BY=.*/\1LINUX_COMPILE_BY=\"${BY_VAL}\"/" \
-              -e "s/^([[:space:]]*)LINUX_COMPILE_HOST=.*/\1LINUX_COMPILE_HOST=\"${HOST_VAL}\"/" "$F"
+          set_identity BY   "$BY_VAL"
+          set_identity HOST "$HOST_VAL"
 
-            BAD=$(check_bad)
-            if [ -n "$BAD" ]; then
-              echo "::error::Identitas kernel belum sesuai:"; echo "$BAD"; exit 1
-            fi
-            echo "✅ Identitas kernel berhasil diubah."
-          fi
-
-          # Tampilkan hasilnya sebagai bukti
+          # Bukti hasil akhir
           grep -nE "LINUX_COMPILE_(BY|HOST)" "$F"
 
       - name: "⚖️ Set CPU Governor to Default (walt)"
