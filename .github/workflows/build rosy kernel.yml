@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
 
     env:
@@ -47,7 +47,7 @@ jobs:
           sudo docker builder prune -a -f || true
           df -h /
 
-      - name: 📦 Install dependensi
+      - name: 📦 Install package support 
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
