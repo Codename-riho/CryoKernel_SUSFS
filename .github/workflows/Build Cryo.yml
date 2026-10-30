@@ -1160,11 +1160,46 @@ jobs:
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all) 2>&1 | tee build_full.log
 
+      - name: "🔎 Cek .config akhir (android-tools)"
+        if: github.event.inputs.toolchain_type == 'android-tools'
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
+          ENABLE_KSU: ${{ matrix.kernel.enable_ksu }}
+          VARIANT_NAME: ${{ matrix.kernel.name }}
+        run: |
+          set -uo pipefail
+          CONFIG_OUT=$(find out -maxdepth 5 -type f -name .config -print -quit 2>/dev/null || true)
+          if [ -z "$CONFIG_OUT" ]; then
+            echo "::warning::.config hasil build.sh tidak ditemukan di out/"
+            exit 0
+          fi
+          echo "Membaca $CONFIG_OUT"
+
+          CHECK_LIST="CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 CONFIG_ZRAM_DEF_COMP_LZ4"
+          if [ "$ENABLE_KSU" = "true" ]; then
+            CHECK_LIST="$CHECK_LIST CONFIG_KSU"
+            [ "${KSU_MANAGER:-}" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
+          fi
+          ENABLED=" $({ grep -E '^CONFIG_[A-Za-z0-9_]+=y$' "$CONFIG_OUT" || true; } | cut -d= -f1 | tr '\n' ' ') "
+
+          CHECK_FILE="$WORK_DIR/config_check.txt"
+          : > "$CHECK_FILE"
+          for c in $CHECK_LIST; do
+            case "$ENABLED" in
+              *" $c "*) echo "$VARIANT_NAME $c ok" >> "$CHECK_FILE"; echo "  ✔ $c=y" ;;
+              *)        echo "$VARIANT_NAME $c miss" >> "$CHECK_FILE"
+                        echo "::warning::[$VARIANT_NAME] $c tidak aktif di .config akhir" ;;
+            esac
+          done
+
       - name: "👍 Make defconfig"
         if: github.event.inputs.toolchain_type == 'custom-tools'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
+          ENABLE_KSU: ${{ matrix.kernel.enable_ksu }}
+          VARIANT_NAME: ${{ matrix.kernel.name }}
         run: |
           set -euo pipefail
           clang --version | head -n1
@@ -1175,7 +1210,7 @@ jobs:
           
           # Pastikan config penting tidak hilang setelah resolusi dependensi
           CHECK_LIST="CONFIG_LTO_CLANG_FULL CONFIG_TCP_CONG_BBR3 CONFIG_ZRAM_DEF_COMP_LZ4"
-          if [ "${{ matrix.kernel.enable_ksu }}" = "true" ]; then
+          if [ "$ENABLE_KSU" = "true" ]; then
             CHECK_LIST="$CHECK_LIST CONFIG_KSU"
             [ "${KSU_MANAGER:-}" = "SukiSU-Ultra+KPM" ] && CHECK_LIST="$CHECK_LIST CONFIG_KPM"
           fi
@@ -1183,16 +1218,16 @@ jobs:
           # Baca .config sekali saja: daftar semua opsi yang bernilai =y
           ENABLED=" $({ grep -E '^CONFIG_[A-Za-z0-9_]+=y$' out/.config || true; } | cut -d= -f1 | tr '\n' ' ') "
 
-          {
-            echo "### Cek .config akhir"
-            for c in $CHECK_LIST; do
-              case "$ENABLED" in
-                *" $c "*) echo "- ✅ \`$c=y\`" ;;
-                *) echo "- ⚠️ \`$c\` TIDAK aktif"
-                   echo "::warning::$c tidak aktif di .config akhir" ;;
-              esac
-            done
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # Catat hasil (format: varian CONFIG ok|miss); dirangkum satu kali di job "Package Kernels"
+          CHECK_FILE="$WORK_DIR/config_check.txt"
+          : > "$CHECK_FILE"
+          for c in $CHECK_LIST; do
+            case "$ENABLED" in
+              *" $c "*) echo "$VARIANT_NAME $c ok" >> "$CHECK_FILE"; echo "  ✔ $c=y" ;;
+              *)        echo "$VARIANT_NAME $c miss" >> "$CHECK_FILE"
+                        echo "::warning::[$VARIANT_NAME] $c tidak aktif di .config akhir" ;;
+            esac
+          done
 
           # Diagnosa ZRAM/LZ4: hanya dicetak kalau LZ4 tidak aktif
           case "$ENABLED" in
@@ -1228,6 +1263,15 @@ jobs:
             ${{ env.WORK_DIR }}/${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/*.rej
           retention-days: 3
           if-no-files-found: ignore
+
+      - name: "📤 Upload hasil cek konfigurasi"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: config-check-${{ matrix.kernel.name }}
+          path: ${{ env.WORK_DIR }}/config_check.txt
+          retention-days: 1
+          if-no-files-found: ignore
           
       - name: "📦 Prepare kernel image"
         working-directory: ${{ env.WORK_DIR }}
@@ -1243,7 +1287,7 @@ jobs:
                clang --version 2>/dev/null | head -n1 > out/dist/build_tools.txt || echo "custom-tools (unknown clang)" > out/dist/build_tools.txt
              fi
            else
-             echo "android-tools (clang-r547379)" > out/dist/build_tools.txt
+             echo "android-tools (clang-r614150)" > out/dist/build_tools.txt
            fi
 
            if [ "${{ github.event.inputs.toolchain_type }}" = "custom-tools" ]; then
@@ -1280,20 +1324,45 @@ jobs:
       contents: write
       actions: read
     steps:
-      - name: "🧩 Ringkasan konfigurasi kernel"
-        if: needs.build-kernels.result == 'success'
-        run: |
-          VARIANTS=$(ls ./artifacts | grep -- '-kernel$' | sed 's/-kernel$//' | paste -sd, - | sed 's/,/, /g')
-          {
-            echo "### 🧩 Kernel Configuration"
-            echo "✅ Konfigurasi berhasil diterapkan: ${VARIANTS}"
-          } >> "$GITHUB_STEP_SUMMARY"
-          
       - name: "📥 Download kernel artifacts"
         if: needs.build-kernels.result == 'success'
         uses: actions/download-artifact@v8
         with:
           path: ./artifacts/
+
+      - name: "🧩 Ringkasan konfigurasi kernel"
+        if: needs.build-kernels.result == 'success'
+        run: |
+          VARIANTS=$(find ./artifacts -mindepth 1 -maxdepth 1 -type d -name '*-kernel' -printf '%f\n' 2>/dev/null \
+            | sed 's/-kernel$//' | sort | paste -sd, - | sed 's/,/, /g')
+          CHECKS=$(find ./artifacts -type f -name config_check.txt 2>/dev/null | sort)
+          {
+            echo "### 🧩 Kernel Configuration"
+            if [ -z "$CHECKS" ]; then
+              echo "✅ Konfigurasi berhasil diterapkan: ${VARIANTS:-tidak ada varian terdeteksi}"
+            else
+              # shellcheck disable=SC2086
+              cat $CHECKS | awk -v variants="$VARIANTS" '
+                { v[$1]=1; k=$2
+                  if (!(k in seen)) { seen[k]=1; order[++n]=k }
+                  cnt[k]++
+                  if ($3=="ok") { ok[k]=ok[k] (ok[k]==""?"":", ") $1 }
+                  else          { miss[k]=miss[k] (miss[k]==""?"":", ") $1 }
+                }
+                END {
+                  for (x in v) total++
+                  bad=0; for (i=1;i<=n;i++) if (miss[order[i]]!="") bad=1
+                  if (bad) print "⚠️ Ada konfigurasi yang tidak aktif: " variants
+                  else     print "✅ Konfigurasi berhasil diterapkan: " variants
+                  print ""
+                  for (i=1;i<=n;i++) { k=order[i]
+                    if (miss[k]!="")        print "- ⚠️ `" k "` tidak aktif di: " miss[k]
+                    else if (cnt[k]<total)  print "- ✅ `" k "=y` (" ok[k] ")"
+                    else                    print "- ✅ `" k "=y`"
+                  }
+                }'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "📦 Create release package"
         if: needs.build-kernels.result == 'success'
