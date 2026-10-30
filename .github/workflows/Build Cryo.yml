@@ -737,48 +737,57 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: "🩹 Patch manager with SUSFS"
-        if: matrix.kernel.enable_ksu == true && github.event.inputs.susfsSupport == 'Enabled'
+        if: matrix.kernel.enable_ksu == true && (inputs.susfsSupport || 'Enabled') == 'Enabled'
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
           SUSFS_BRANCH: gki-android13-5.15
+          SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
         run: |
           set -euo pipefail
           die() { echo "::error::$*"; exit 1; }
 
-          # Meskipun input Enabled, kita cek apakah varian Root Manager butuh patch eksternal
           if [ "$NEED_SUSFS_PATCH" != 1 ]; then
-            echo "✅ Varian $KSU_MANAGER sudah menggunakan SUSFS bawaan (built-in). Melewati proses patch manual."
+            echo "✅ $KSU_MANAGER sudah memakai SUSFS bawaan. Patch manual dilewati."
             exit 0
           fi
 
-          echo "Menerapkan patch SUSFS (branch: $SUSFS_BRANCH) ke $KSU_DIR"
-          rm -rf /tmp/susfs4ksu
+          # KSU_DIR = <repo>/kernel (symlink drivers/kernelsu); patch memakai path "kernel/..."
+          # sehingga harus diterapkan dari akar repo manager.
+          KSU_ROOT=$(git -C "$KSU_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+          [ -n "$KSU_ROOT" ] || KSU_ROOT="$(dirname "$KSU_DIR")"
+
+          SUSFS_TMP=$(mktemp -d)
+          trap 'rm -rf "$SUSFS_TMP"' EXIT
+
+          echo "📦 Clone SUSFS4KSU ($SUSFS_BRANCH)"
           ok=0
           for i in 1 2 3; do
-            if git clone --depth=1 -b "$SUSFS_BRANCH" https://gitlab.com/simonpunk/susfs4ksu.git /tmp/susfs4ksu; then
-              ok=1; break
-            fi
-            echo "⚠️ Percobaan clone SUSFS gagal ($i/3)... mencoba lagi."; rm -rf /tmp/susfs4ksu; sleep $((i*10))
+            if git clone -q --depth=1 -b "$SUSFS_BRANCH" "$SUSFS_REPO" "$SUSFS_TMP/susfs4ksu"; then ok=1; break; fi
+            echo "⚠️ Clone gagal ($i/3), mencoba lagi..."; rm -rf "$SUSFS_TMP/susfs4ksu"; sleep $((i*10))
           done
-          
-          [ "$ok" = 1 ] || die "Fatal Error: Gagal melakukan clone repositori susfs4ksu setelah 3 kali percobaan."
+          [ "$ok" = 1 ] || die "Gagal clone susfs4ksu setelah 3 kali percobaan"
+          SUSFS_HEAD=$(git -C "$SUSFS_TMP/susfs4ksu" rev-parse --short HEAD)
 
-          PATCH_FILE=/tmp/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-          [ -f "$PATCH_FILE" ] || die "Fatal Error: File patch SUSFS tidak ditemukan di $PATCH_FILE"
-          
-          echo "🔍 Menguji kompabilitas patch (simulasi/dry-run)..."
-          # Kita lakukan dry-run terlebih dahulu (simulasi). Jika error, masuk ke blok 'else'
-          if patch -d "$KSU_DIR" -p1 --forward --dry-run < "$PATCH_FILE" > /dev/null 2>&1; then
-            echo "✅ Simulasi berhasil! Menerapkan patch sesungguhnya..."
-            # Karena simulasi aman, kita terapkan secara nyata (hapus --dry-run)
-            patch -d "$KSU_DIR" -p1 --forward --batch < "$PATCH_FILE" \
-              || die "Fatal Error: Gagal saat menerapkan patch sesungguhnya."
-            echo "✅ Patch SUSFS berhasil dipasang!"
+          PATCH_FILE="$SUSFS_TMP/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          [ -f "$PATCH_FILE" ] || die "Patch SUSFS tidak ditemukan: kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+
+          if patch -d "$KSU_ROOT" -p1 -R --dry-run -s -f < "$PATCH_FILE" >/dev/null 2>&1; then
+            echo "✅ Patch SUSFS sudah terpasang di $KSU_MANAGER (susfs4ksu@$SUSFS_HEAD)"
+          elif patch -d "$KSU_ROOT" -p1 --forward --dry-run < "$PATCH_FILE" >"$SUSFS_TMP/dry.log" 2>&1; then
+            patch -d "$KSU_ROOT" -p1 --forward --batch --no-backup-if-mismatch < "$PATCH_FILE" >/dev/null \
+              || die "Patch SUSFS gagal saat diterapkan"
+            echo "✅ Patch SUSFS berhasil dipasang di $KSU_MANAGER (susfs4ksu@$SUSFS_HEAD)"
+            # fuzz tinggi = konteks tidak cocok persis; patch bisa mendarat di tempat yang salah
+            if grep -qi "fuzz" "$SUSFS_TMP/dry.log"; then
+              echo "::warning::Patch SUSFS diterapkan dengan fuzz (konteks tidak persis). Periksa hasilnya:"
+              grep -i "fuzz\|offset" "$SUSFS_TMP/dry.log"
+            fi
           else
-            die "Fatal Error: Uji coba patch gagal! Kode sumber Root Manager ($KSU_MANAGER) bentrok atau patch sudah pernah diterapkan secara berbeda. Proses dibatalkan dengan aman."
+            cat "$SUSFS_TMP/dry.log"
+            die "Patch SUSFS tidak cocok dengan $KSU_MANAGER (ref: ${KSU_REF_USED:-?}). Proses dibatalkan, tidak ada perubahan."
           fi
-      
+        
       - name: "🧩 Extra manager patch & enable KSU"
         if: matrix.kernel.enable_ksu == true
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
