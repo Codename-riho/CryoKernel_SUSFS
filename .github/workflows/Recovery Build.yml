@@ -107,7 +107,7 @@ jobs:
           
     - name: Repo Sync
       run: |
-        repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
+        repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j1
       working-directory: workspace
       
     - name: Clone device tree
