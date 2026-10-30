@@ -791,19 +791,19 @@ jobs:
 
           # Cek apakah varian manager ini memiliki ekstra patch yang harus diterapkan
           if [ -n "$EXTRA_PATCH_URL" ]; then
-            echo "⚙️ Ekstra patch ditemukan untuk varian $KSU_MANAGER."
-            echo "Mengunduh dari: $EXTRA_PATCH_URL"
-            
-            # Jika curl gagal (misal URL mati/404), script akan langsung batal (die)
-            curl -fsSL -o /tmp/ksu_extra.patch "$EXTRA_PATCH_URL" \
-              || die "Fatal Error: Gagal mengunduh ekstra patch dari URL tersebut!"
-              
-            echo "Menerapkan ekstra patch ke $KSU_DIR..."
-            # Jika patch gagal diterapkan, script langsung batal (die)
-            patch -d "$KSU_DIR" -p1 --forward --batch < /tmp/ksu_extra.patch \
-              || die "Fatal Error: Ekstra patch gagal diterapkan pada $KSU_MANAGER (ref: $KSU_REF_USED)!"
-              
-            echo "✅ Ekstra patch berhasil diterapkan."
+            # KSU_DIR = <repo>/kernel (symlink drivers/kernelsu); patch memakai path "kernel/..."
+            # sehingga harus diterapkan dari akar repo manager.
+            KSU_ROOT=$(git -C "$KSU_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+            [ -n "$KSU_ROOT" ] || KSU_ROOT="$(dirname "$KSU_DIR")"
+            echo "Menerapkan ekstra patch ke $KSU_ROOT..."
+
+            if patch -d "$KSU_ROOT" -p1 -R --dry-run -s -f < /tmp/ksu_extra.patch >/dev/null 2>&1; then
+              echo "✅ Ekstra patch sudah terpasang, dilewati."
+            else
+              patch -d "$KSU_ROOT" -p1 --forward --batch < /tmp/ksu_extra.patch \
+                || die "Fatal Error: Ekstra patch gagal diterapkan pada $KSU_MANAGER (ref: $KSU_REF_USED)!"
+              echo "✅ Ekstra patch berhasil diterapkan."
+            fi
           else
             # Jika EXTRA_PATCH_URL kosong, lewati proses ekstra patch
             echo "✅ Tidak ada ekstra patch yang diperlukan untuk varian $KSU_MANAGER. Melanjutkan proses..."
