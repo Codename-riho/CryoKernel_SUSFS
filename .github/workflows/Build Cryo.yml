@@ -793,25 +793,37 @@ jobs:
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
           KSU_MANAGER: ${{ inputs.ksu_manager || 'BakaSU' }}
-          DEFCONFIG_NAME: ${{ env.DEFCONFIG_NAME }} 
+          DEFCONFIG_NAME: ${{ env.DEFCONFIG_NAME }}
         run: |
           set -euo pipefail
           die() { echo "::error::$*"; exit 1; }
 
           # Cek apakah varian manager ini memiliki ekstra patch yang harus diterapkan
-          if [ -n "$EXTRA_PATCH_URL" ]; then
+          if [ -n "${EXTRA_PATCH_URL:-}" ]; then
+            echo "⚙️ Ekstra patch ditemukan untuk varian $KSU_MANAGER."
+            echo "Mengunduh dari: $EXTRA_PATCH_URL"
+
+            EXTRA_PATCH_FILE=$(mktemp)
+            trap 'rm -f "$EXTRA_PATCH_FILE"' EXIT
+            curl -fsSL --retry 3 -o "$EXTRA_PATCH_FILE" "$EXTRA_PATCH_URL" \
+              || die "Fatal Error: Gagal mengunduh ekstra patch dari URL tersebut!"
+            [ -s "$EXTRA_PATCH_FILE" ] || die "Fatal Error: Ekstra patch kosong!"
+
             # KSU_DIR = <repo>/kernel (symlink drivers/kernelsu); patch memakai path "kernel/..."
             # sehingga harus diterapkan dari akar repo manager.
             KSU_ROOT=$(git -C "$KSU_DIR" rev-parse --show-toplevel 2>/dev/null || true)
             [ -n "$KSU_ROOT" ] || KSU_ROOT="$(dirname "$KSU_DIR")"
             echo "Menerapkan ekstra patch ke $KSU_ROOT..."
 
-            if patch -d "$KSU_ROOT" -p1 -R --dry-run -s -f < /tmp/ksu_extra.patch >/dev/null 2>&1; then
+            if patch -d "$KSU_ROOT" -p1 -R --dry-run -s -f < "$EXTRA_PATCH_FILE" >/dev/null 2>&1; then
               echo "✅ Ekstra patch sudah terpasang, dilewati."
-            else
-              patch -d "$KSU_ROOT" -p1 --forward --batch < /tmp/ksu_extra.patch \
-                || die "Fatal Error: Ekstra patch gagal diterapkan pada $KSU_MANAGER (ref: $KSU_REF_USED)!"
+            elif patch -d "$KSU_ROOT" -p1 --forward --dry-run < "$EXTRA_PATCH_FILE" >/tmp/ksu_extra.log 2>&1; then
+              patch -d "$KSU_ROOT" -p1 --forward --batch --no-backup-if-mismatch < "$EXTRA_PATCH_FILE" >/dev/null \
+                || die "Fatal Error: Ekstra patch gagal diterapkan pada $KSU_MANAGER (ref: ${KSU_REF_USED:-?})!"
               echo "✅ Ekstra patch berhasil diterapkan."
+            else
+              cat /tmp/ksu_extra.log
+              die "Fatal Error: Ekstra patch tidak cocok dengan $KSU_MANAGER (ref: ${KSU_REF_USED:-?})!"
             fi
           else
             # Jika EXTRA_PATCH_URL kosong, lewati proses ekstra patch
@@ -823,7 +835,7 @@ jobs:
           if [ ! -f "$CONFIG_PATH" ]; then
              die "Fatal Error: File Defconfig tidak ditemukan di $CONFIG_PATH. Periksa konfigurasi DEFCONFIG_NAME."
           fi
-          
+
           echo "Mengaktifkan CONFIG_KSU pada defconfig $DEFCONFIG_NAME..."
           scripts/config --file "$CONFIG_PATH" -e CONFIG_KSU
 
@@ -831,7 +843,7 @@ jobs:
           KPM_STATE=""
           if [ "$KSU_MANAGER" = "SukiSU-Ultra+KPM" ]; then
             echo "Mengaktifkan CONFIG_KPM..."
-            scripts/config --file "$CONFIG_PATH" -e CONFIG_KPM
+            scripts/config --file "$CONFIG_PATH" -e CONFIG_KPM -e CONFIG_KALLSYMS_ALL
             KPM_STATE="aktif"
           else
             echo "ℹ️ KPM dilewati (hanya untuk varian SukiSU-Ultra+KPM)."
