@@ -151,12 +151,13 @@ jobs:
       WORK_DIR: ${{ github.workspace }}
       
       # default aman untuk schedule + manual run
-      TOOLCHAIN_TYPE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.toolchain_type || 'android-tools' }}
-      DROIDSPACES_SUPPORT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.droidspaces_support || 'Disabled' }}
-      SUSFS_SUPPORT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.susfsSupport || 'Enabled' }}
-      KSU_MANAGER: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ksu_manager || 'BakaSU' }}
-      KSU_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ksu_ref || '' }}
-      SUSFS_COMMIT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.susfs_commit || '' }}
+      TOOLCHAIN_TYPE: "${{ inputs.toolchain_type || 'android-tools' }}"
+      DROIDSPACES_SUPPORT: "${{ inputs.droidspaces_support || 'Disabled' }}"
+      SUSFS_SUPPORT: "${{ inputs.susfsSupport || 'Enabled' }}" 
+      KSU_MANAGER: "${{ inputs.ksu_manager || 'BakaSU' }}"
+      KSU_REF: "${{ inputs.ksu_ref || '' }}"
+      SUSFS_COMMIT: "${{ inputs.susfs_commit || '' }}"
+      DEEPSLEEP_TUNING: "${{ inputs.deepsleep_tuning || 'false' }}"
 
     steps:
       - name: "✨ Setup workspace"
