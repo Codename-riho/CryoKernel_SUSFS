@@ -1075,22 +1075,23 @@ jobs:
           set +e
           set -u
           KSU_DIR="${KSU_DIR:-drivers/kernelsu}"
-          MISSING=0
+          MISSING=0; TOTAL=0
           for s in ksu_preinit_handle_post_execveat ksu_setup_preinit_file my_setprocattr my_write_context my_write_access; do
-            echo "== $s"
-            CALLED=$(grep -rnw --include='*.c' --include='*.h' "$s" fs security kernel include 2>/dev/null | grep -v 'include/linux/susfs' | head -3)
-            DEF=$(grep -rnw "$s" "$KSU_DIR" 2>/dev/null | head -3)
-            echo "  dipanggil di kernel:"
-            if [ -n "$CALLED" ]; then echo "$CALLED" | sed 's/^/    /'; else echo "    (tidak ada)"; fi
-            if [ -n "$DEF" ]; then
-              echo "  ada di KSU:"; echo "$DEF" | sed 's/^/    /'
+            TOTAL=$((TOTAL+1))
+            CALLED=$(grep -rnw --include='*.c' --include='*.h' "$s" fs security kernel include 2>/dev/null | grep -v 'include/linux/susfs')
+            DEF=$(grep -rnw "$s" "$KSU_DIR" 2>/dev/null)
+            NC=$(printf '%s' "$CALLED" | grep -c .)
+            ND=$(printf '%s' "$DEF" | grep -c .)
+            if [ "$ND" -gt 0 ]; then
+              echo "✅ $s (kernel: $NC, KSU: $ND)"
+            elif [ "$NC" -gt 0 ]; then
+              echo "❌ $s dipanggil di $(printf '%s' "$CALLED" | head -1 | cut -d: -f1,2), tidak ada di KSU"
+              MISSING=$((MISSING+1))
             else
-              echo "  ❌ TIDAK ADA di KSU ($KSU_DIR)"
-              if [ -n "$CALLED" ]; then MISSING=$((MISSING+1)); fi
+              echo "➖ $s (tidak dipakai kernel)"
             fi
           done
-          grep -c ksu_selinux_hide_running security/selinux/hooks.c || true
-          echo "Simbol hilang: $MISSING"
+          echo "Hilang: $MISSING/$TOTAL | ksu_selinux_hide_running: $(grep -c ksu_selinux_hide_running security/selinux/hooks.c 2>/dev/null)"
           [ "$MISSING" -eq 0 ] || echo "::warning::Ada hook SUSFS di kernel yang tidak punya pasangan di KSU, link akan gagal"
                   
       - name: "📝 Append custom Makefile line"
