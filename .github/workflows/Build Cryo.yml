@@ -11,7 +11,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 20 * * 5"   # UTC → Sabtu 03:00 WIB
+    - cron: "0 18 * * 5"   # UTC → Sabtu 03:00 WIB
   workflow_dispatch:
      inputs:
       ksu_manager:
@@ -525,7 +525,7 @@ jobs:
             echo "TOOLCHAIN_TYPE=${TOOLCHAIN_TYPE}"
             echo "DROIDSPACES_SUPPORT=${DROIDSPACES_SUPPORT}"
             echo "SUSFS_SUPPORT=${SUSFS_SUPPORT}"
-            echo "KSU_MANAGER=${KSU_MANAGER
+            echo "KSU_MANAGER=${KSU_MANAGER}"
   
       - name: "🚄 Porting BBRv3 + PLB (cherry-pick)"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
