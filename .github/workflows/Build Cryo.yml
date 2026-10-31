@@ -1169,7 +1169,7 @@ jobs:
           echo "✅ CPU Governor berhasil disetel ke 'walt' pada file $DEFCONFIG_NAME!"
 
       - name: "💤 Inject Deep Sleep (built-in kernel)"
-        if: github.event.inputs.deepsleep_tuning == 'Enabled'
+        if: github.event.inputs.deepsleep_tuning == 'true'
         shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
