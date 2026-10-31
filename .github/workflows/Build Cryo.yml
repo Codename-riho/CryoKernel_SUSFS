@@ -1,4 +1,6 @@
-name: "Build Cryo Kernel"
+name: "Build Cryo Kernel (using dynamic injection setup)"  
+  # Dynamic Kernel Build System setup If you find an issue,
+  # immediately fix it yourself because the dynamic setup in my branch will be fixed if it is truly successful and running optimally. 
 
 env:
   OUT_DIR: "out"
@@ -11,7 +13,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 18 * * 5"
+    - cron: "0 19 * * 5"
   workflow_dispatch:
      inputs:
       ksu_manager:
@@ -192,17 +194,17 @@ jobs:
           echo "Disk space after cleanup:"
           df -h /
           
-      - name: 📐 Setup SWAP 24GB
+      - name: 🚧 Setup SWAP 24GB
         uses: pierotofy/set-swap-space@master
         with:
             swap-size-gb: 24
             
-      - name: 📐 Tune Swap
+      - name: 🔥 Tune Swap
         run: |
             echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
             sudo sysctl -p
 
-      - name: "🌟 Clone kernel source"
+      - name: "🎭 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
           # Atur buffer git untuk mencegah early EOF
@@ -601,7 +603,7 @@ jobs:
           rm -f .scmversion localversion*
           echo "Localversion: $VER"
                     
-      - name: "🔲 Add Droidspaces Support (kABI patch + GKI defconfig)"
+      - name: "🏜️📦 Add Droidspaces Support (kABI patch + GKI defconfig)"
         if: ${{ env.DROIDSPACES_SUPPORT == 'Enabled' }}
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
@@ -696,7 +698,7 @@ jobs:
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
           curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
       
-      - name: "⚔️ Setup root manager (${{ inputs.ksu_manager }})"
+      - name: "⚔️ Setup Ksu Variant (${{ env.KSU_MANAGER }})"
         if: matrix.kernel.enable_ksu == true
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
