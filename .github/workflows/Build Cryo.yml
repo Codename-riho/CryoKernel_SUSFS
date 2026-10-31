@@ -71,7 +71,7 @@ on:
         type: string
         default: ""
       deepsleep_tuning:         
-        description: "Install Cryo Enhance Deep Sleep kernel?"         
+        description: "Install Cryo Enhance Deep Sleep to kernel?"         
         required: true         
         type: boolean         
         default: false         
