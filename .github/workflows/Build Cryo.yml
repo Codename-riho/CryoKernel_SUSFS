@@ -11,7 +11,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 18 * * 5"   # UTC → Sabtu 03:00 WIB
+    - cron: "0 18 * * 5"
   workflow_dispatch:
      inputs:
       ksu_manager:
