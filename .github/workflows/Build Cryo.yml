@@ -955,6 +955,36 @@ jobs:
             echo "✅ SUSFS patch successfully applied"
           else
             echo "⚠️ SUSFS patch failed — copying files manually"
+            echo "🩹 Patch punya reject — menerapkan hunk include-only secara manual"
+
+            # namespace.c: hanya 2 hunk (include susfs_def.h + CL_COPY_MNT_NS)
+            if [ -f fs/namespace.c.rej ] && [ "$(grep -c '^@@' fs/namespace.c.rej)" -le 2 ]; then
+              if ! grep -q 'CL_COPY_MNT_NS BIT(25)' fs/namespace.c; then
+                perl -0pi -e 's{(#include "internal\.h"\n)}{$1#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif // #ifdef CONFIG_KSU_SUSFS\n}' fs/namespace.c
+                perl -0pi -e 's{(/\* Maximum number of mounts in a mount namespace \*/\n)}{#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n\n$1}' fs/namespace.c
+              fi
+              grep -q 'CL_COPY_MNT_NS BIT(25)' fs/namespace.c || { echo "❌ namespace.c manual inject failed"; exit 1; }
+              rm -f fs/namespace.c.rej fs/namespace.c.orig
+            fi
+
+            # task_mmu.c: hanya 1 hunk (include susfs_def.h)
+            if [ -f fs/proc/task_mmu.c.rej ] && [ "$(grep -c '^@@' fs/proc/task_mmu.c.rej)" -le 1 ]; then
+              if ! grep -q 'linux/susfs_def.h' fs/proc/task_mmu.c; then
+                perl -0pi -e 's{(#include <asm/elf\.h>\n)}{#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif\n\n$1}' fs/proc/task_mmu.c
+              fi
+              grep -q 'linux/susfs_def.h' fs/proc/task_mmu.c || { echo "❌ task_mmu.c manual inject failed"; exit 1; }
+              rm -f fs/proc/task_mmu.c.rej fs/proc/task_mmu.c.orig
+            fi
+
+            # sisa reject selain mkcompile_h = patch benar-benar tidak cocok
+            if find . -name '*.rej' ! -name 'mkcompile_h.rej' | grep -q .; then
+              echo "❌ Unexpected rejects remain"
+              find . -name '*.rej' ! -name 'mkcompile_h.rej' | while read -r r; do
+                echo "=== $r ==="; cat "$r"
+              done
+              exit 1
+            fi
+            echo "✅ SUSFS patch applied (with manual include fixups)"
           fi
                  
           echo "💉 Applying SUSFS -> KernelSU patch..."
